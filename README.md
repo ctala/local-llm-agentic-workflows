@@ -52,6 +52,7 @@ The recipes were tested on the **NVIDIA DGX Spark** and should work on any ARM64
 ```
 .
 ├── README.md                     # This file
+├── AGENTS.md                     # Hermes / OpenClaw / Opencode / LiteLLM integration guide
 ├── RESULTS.md                    # Full benchmark tables and technical notes (English)
 ├── RESULTS.es.md                 # Spanish version of RESULTS.md
 ├── SETUP.md                      # Detailed setup log, errors and fixes (English)
@@ -201,13 +202,20 @@ See [`RESULTS.md`](RESULTS.md) for the full context-scaling tables.
 
 ---
 
-## Connecting to agent frameworks (Hermes / OpenClaw)
+## Connecting to agent frameworks
 
-All vLLM and TensorRT-LLM recipes expose an **OpenAI-compatible API** on `http://localhost:8000/v1`. You can point any agent framework that supports custom OpenAI endpoints directly at it.
+All recipes expose an **OpenAI-compatible API** on `http://localhost:8000/v1`. You can connect Hermes, OpenClaw, Opencode, n8n, Open WebUI, or any other OpenAI-compatible client directly, or route everything through a **LiteLLM proxy** for a single endpoint that can be shared across the network.
 
-### Hermes
+See [`AGENTS.md`](AGENTS.md) for the full integration guide covering:
 
-Add a provider block to `~/.hermes/config.yaml`:
+- **Hermes** — direct and via LiteLLM
+- **OpenClaw** — direct, LiteLLM, and migration to Hermes
+- **Opencode** — direct and via LiteLLM
+- **LiteLLM proxy** — unified endpoint on `http://0.0.0.0:4000/v1`
+- **Network access** — using the Spark from other machines
+- **Troubleshooting**
+
+Quick start for Hermes:
 
 ```yaml
 providers:
@@ -219,25 +227,9 @@ providers:
     context_length: 262144
 ```
 
-Then run:
-
 ```bash
 hermes chat --provider local-qwen-35b-vllm-262k -m qwen3.6-35b-a3b
 ```
-
-If you are migrating from OpenClaw, use:
-
-```bash
-hermes claw migrate
-```
-
-### OpenClaw
-
-OpenClaw uses the same `providers:` shape. Add a custom provider pointing to `http://localhost:8000/v1` with model `qwen3.6-35b-a3b` and context length `262144`.
-
-### n8n / Open WebUI
-
-Use the base URL `http://localhost:8000/v1` and any non-empty API key (vLLM does not validate keys by default).
 
 ---
 
