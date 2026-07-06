@@ -221,4 +221,4 @@ Benchmark: ~34.4 decode tok/s, hot TTFT ~0.09 s, ~41 GB unified memory.
 5. Test full NVFP4 Qwen 3.6 on TRT-LLM when linear-attention scales are supported.
 6. Compare Qwen 3.6 custom MLP-only NVFP4 quality against RedHatAI `compressed-tensors`.
 7. Test GPT-OSS with TRT-LLM.
-8. Try Qwen 3.6 35B A3B Q8_K_XL (GGUF) and Qwopus 3.6 27B Coder MTP from the MiaAI agentic ranking.
+8. Test GGUF and MTP variants of Qwen 3.6 to compare quality vs speed trade-offs.

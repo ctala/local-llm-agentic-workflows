@@ -1,16 +1,18 @@
-# Best Local LLMs for Agentic Workflows on DGX Spark & 96–128 GB Edge AI Workstations
+# Best Local LLM Deployment Guide for DGX Spark, GB10 & 96–128 GB Edge AI Workstations
 
-Benchmarks and ready-to-run Docker recipes for deploying **local LLMs for agentic workflows** on high-memory edge AI hardware such as the **NVIDIA DGX Spark** (GB10 Grace Blackwell, ARM64/aarch64, 128 GB unified memory, sm_121) and other single-GPU workstations with **96–128 GB of unified or pooled memory**.
+A practical guide, benchmark results and ready-to-run Docker recipes for running the best local LLMs on high-memory edge AI hardware such as the **NVIDIA DGX Spark** (GB10 Grace Blackwell, ARM64/aarch64, 128 GB unified memory, sm_121) and other single-GPU workstations with **96–128 GB of unified or pooled memory**.
 
-This repo focuses on **Hermes Agent**, **OpenClaw**, Open WebUI and n8n use cases: multi-turn tool calling, function calling, autonomous planning and multimodal agents. It compares **vLLM** and **TensorRT-LLM** deployments with **NVFP4/Marlin** and **FP8 KV cache**, measuring real decode throughput, memory usage and stability.
+This repository answers one question: **what is the best way to run local large language models on memory-rich edge devices?** It compares production inference engines (**vLLM** and **TensorRT-LLM**), quantization formats (**NVFP4/Marlin**, **FP8 KV cache**, **BF16**) and model families (**Gemma 4**, **Qwen 3.6**, **NVIDIA Nemotron 3**), measuring real decode throughput, memory footprint and stability.
 
-> **Critical edge-AI limitation**: the NVIDIA GB10 has no native FP4 compute. NVFP4 checkpoints run through the **Marlin** backend (vLLM) or the PyTorch backend of TensorRT-LLM, decompressing FP4 → BF16 at runtime. This limits throughput compared to FP4-native datacenter GPUs (e.g. B200), but still makes 30B–120B parameter models runnable on a single edge device.
+Use cases covered include chatbots, coding assistants, agentic workflows with **Hermes** and **OpenClaw**, Open WebUI, n8n, multi-turn tool calling and multimodal agents.
+
+> **Critical edge-AI limitation**: the NVIDIA GB10 has no native FP4 compute. NVFP4 checkpoints run through the **Marlin** backend (vLLM) or the PyTorch backend of TensorRT-LLM, decompressing FP4 → BF16 at runtime. This limits throughput compared to FP4-native datacenter GPUs such as the B200, but still makes 30B–120B parameter models runnable on a single edge device.
 
 ---
 
 ## Quick answer
 
-For agents on DGX Spark or equivalent 96–128 GB edge hardware, start with one of these three depending on your priority:
+For local LLM deployment on DGX Spark or equivalent 96–128 GB edge hardware, start here:
 
 | Priority | Model | Framework | Decode tok/s | Memory | Tool calling | Multimodal |
 |----------|-------|-----------|--------------|--------|--------------|------------|
@@ -18,12 +20,12 @@ For agents on DGX Spark or equivalent 96–128 GB edge hardware, start with one 
 | **Quality/speed balance** | Qwen 3.6 35B-A3B | vLLM | **~42.2** | ~22 GB | ✅ | ✅ image/video |
 | **Official NVIDIA multimodal** | Nemotron-3 Nano Omni 30B-A3B | vLLM | **~40.0** | ~40 GB | ✅ | ✅ image |
 
-For pure quality when speed is less important:
+For quality-first workloads where speed is less important:
 
 | Model | Framework | Decode tok/s | Memory | Notes |
 |-------|-----------|--------------|--------|-------|
-| Nemotron-3 Super 120B-A12B | TensorRT-LLM | ~14.7 | ~110 GB | Best official quality, but slow |
-| Qwen 3.6 35B-A3B (custom MLP-only NVFP4) | TensorRT-LLM | ~34.4 | ~41 GB | Official stack, requires manual quantization |
+| Nemotron-3 Super 120B-A12B | TensorRT-LLM | ~14.7 | ~110 GB | Best official quality; use only with TRT-LLM |
+| Qwen 3.6 35B-A3B (custom MLP-only NVFP4) | TensorRT-LLM | ~34.4 | ~41 GB | Official NVIDIA stack; requires manual quantization |
 
 ---
 
@@ -36,7 +38,7 @@ The recipes were tested on the **NVIDIA DGX Spark** and should work on any ARM64
 | CPU | 20 cores ARM64 (aarch64) | ARM64 or x86_64, 16+ cores |
 | GPU | NVIDIA GB10 (sm_121) | Single GPU with 96–128 GB accessible memory |
 | Memory | 128 GB LPDDR5x unified (~121 GB usable) | 96–128 GB unified, pooled or host memory |
-| Driver NVIDIA | 580.142 | Recent 570+ series |
+| NVIDIA driver | 580.142 | Recent 570+ series |
 | CUDA | 13.0 | CUDA 12.6+ / 13.0 |
 | Docker | 29.2.1 | Docker 24+ with NVIDIA Container Toolkit |
 | NVIDIA Container Toolkit | 1.19.0 | 1.14+ |
@@ -52,7 +54,7 @@ The recipes were tested on the **NVIDIA DGX Spark** and should work on any ARM64
 ├── README.md                     # This file
 ├── RESULTS.md                    # Full benchmark tables and technical notes (English)
 ├── RESULTS.es.md                 # Spanish version of RESULTS.md
-├── SETUP.md                      # Detailed log of attempts, errors and fixes (English)
+├── SETUP.md                      # Detailed setup log, errors and fixes (English)
 ├── SETUP.es.md                   # Spanish version of SETUP.md
 ├── LICENSE                       # MIT
 ├── scripts/                      # Docker launch recipes and helpers
@@ -77,7 +79,7 @@ The recipes were tested on the **NVIDIA DGX Spark** and should work on any ARM64
 
 1. Download the desired checkpoint under `~/vllm/`.
 2. Run the matching script from `scripts/`.
-3. Wait for the model to load.
+3. Wait for the container to load the model.
 4. Benchmark text generation:
    ```bash
    python3 benchmarks/bench_model.py gemma-4-26b-a4b 512
@@ -93,9 +95,11 @@ The recipes were tested on the **NVIDIA DGX Spark** and should work on any ARM64
 
 ## Results summary: local LLM throughput on DGX Spark
 
+Benchmarks use a ~120-token prompt, `max_tokens=512`, temperature 0.7 and streaming, reporting decode tok/s and hot TTFT.
+
 | Model | Checkpoint | Framework | Decode tok/s | Memory | Tool calling | Multimodal | Recommendation |
 |-------|------------|-----------|--------------|--------|--------------|------------|----------------|
-| **Gemma 4 26B-A4B** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + patch | vLLM | **~49.5** | ~22 GB | ✅ | ✅ image/video | **Fastest for text agents** |
+| **Gemma 4 26B-A4B** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + patch | vLLM | **~49.5** | ~22 GB | ✅ | ✅ image/video | **Fastest local LLM for text agents** |
 | **Qwen 3.6 35B-A3B** | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | vLLM | **~42.2** | ~22 GB | ✅ | ✅ image/video | **Best quality/speed trade-off** |
 | Qwen 3.6 35B-A3B | Custom MLP-only NVFP4 | TRT-LLM | ~34.4 | ~41 GB | ✅ | ❌ text only | Official NVIDIA stack |
 | Nemotron-3 Nano 30B-A3B | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | TRT-LLM | ~28.8 | ~118 GB | ✅ | ❌ text only | Official dense model; leaves little free memory |
@@ -104,26 +108,21 @@ The recipes were tested on the **NVIDIA DGX Spark** and should work on any ARM64
 | **Nemotron-3 Nano Omni 30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` | vLLM | **~40.0** | ~40 GB | ✅ | ✅ image | **Best official multimodal option** |
 | Gemma 4 31B | `nvidia/Gemma-4-31B-IT-NVFP4` | vLLM | ~6.7 | ~31 GB | ✅ | ✅ image/video | Use only if you need the dense variant |
 
-See [`RESULTS.md`](RESULTS.md) for full tables, command recipes and error analysis.
+See [`RESULTS.md`](RESULTS.md) for full tables, launch commands and error analysis.
 
 ---
 
-## How this compares to other agentic LLM benchmarks
+## What makes this different from other local LLM comparisons
 
-[MiaAI-Lab/Best-Local-Model_Agentic-Workflows_2026](https://github.com/MiaAI-Lab/Best-Local-Model_Agentic-Workflows_2026) evaluates agentic capability using `tool-eval-bench` (84 scenarios, 8 trials) on llama.cpp GGUF quantizations for DGX Spark and similar 96–128 GB units. Their top pick for Hermes Agent is **Qwen 3.6 35B A3B UD Q8_K_XL** (score 91.0), followed by **Qwen 3.6 27B NVFP4** (89.0) and **Qwopus 3.6 27B Coder MTP** (85.2).
+Most public benchmarks focus on **raw capability** using llama.cpp GGUF quantizations. This repository focuses on **production deployment**:
 
-This repository focuses on **throughput-optimized local deployment** using vLLM and TensorRT-LLM with FP8 KV cache and NVFP4/Marlin. We have not yet run `tool-eval-bench` quality scores, so the two benchmarks are complementary:
+- **Inference engines**: vLLM vs TensorRT-LLM.
+- **Quantization formats**: NVFP4/Marlin, FP8 KV cache, BF16.
+- **Memory management**: how to fit 30B–120B models into 128 GB unified memory.
+- **Stability**: which combinations actually load and serve reliably on GB10-class hardware.
+- **Throughput**: real decode tok/s measured with a reproducible OpenAI-compatible benchmark.
 
-- Use MiaAI's work to pick the most capable model for your agent task.
-- Use our recipes to deploy that model at the highest sustainable tok/s on GB10-class hardware.
-
-### Candidates worth testing next for agentic quality
-
-| Model | Why test | Expected trade-off |
-|-------|----------|--------------------|
-| **Qwen 3.6 35B A3B Q8_K_XL (GGUF)** | Highest agentic score in their benchmark | Likely slower than NVFP4/vLLM, but may improve reliability |
-| **Qwopus 3.6 27B Coder MTP** | Fastest reliable tier in their ranking (~2.2 s/turn) | Could be a strong coding/agent model on Spark-class hardware |
-| **Agents-A1 Q8_0** | Purpose-built agent model | Unknown quality/speed on GB10 |
+The recipes are designed to be copy-pasteable into a DGX Spark or any 96–128 GB edge AI workstation.
 
 ---
 
@@ -144,27 +143,30 @@ systemctl --user enable --now qwen27-local.service qwen35-local.service
 
 ---
 
-## Recommended models for Hermes / OpenClaw
+## Recommended models by use case
 
 Based on throughput, memory headroom and tool-calling support on DGX Spark and equivalent 96–128 GB edge AI hardware:
 
-1. **Default production agent** → **Qwen 3.6 35B-A3B** (`RedHatAI/Qwen3.6-35B-A3B-NVFP4`) on vLLM.
-   - ~42 tok/s, ~22 GB memory, excellent tool-calling, image/video support.
-2. **Maximum speed** → **Gemma 4 26B-A4B IT** (community patch) on vLLM.
+1. **Fastest local LLM for agents and chatbots** → **Gemma 4 26B-A4B IT** (community patch) on vLLM.
    - ~49.5 tok/s, ~22 GB memory. Requires the community patch.
+2. **Best quality/speed balance** → **Qwen 3.6 35B-A3B** (`RedHatAI/Qwen3.6-35B-A3B-NVFP4`) on vLLM.
+   - ~42 tok/s, ~22 GB memory, excellent tool calling, image/video support.
 3. **Official NVIDIA multimodal** → **Nemotron-3 Nano Omni 30B-A3B** on vLLM.
    - ~40 tok/s, ~40 GB memory, image support. Audio decoding needs more work.
-4. **Quality over speed** → **Nemotron-3 Super 120B-A12B** on TensorRT-LLM.
+4. **Official NVIDIA stack** → **Qwen 3.6 35B-A3B MLP-only NVFP4** on TensorRT-LLM.
+   - ~34.4 tok/s, ~41 GB memory. Requires manual quantization from BF16.
+5. **Quality over speed** → **Nemotron-3 Super 120B-A12B** on TensorRT-LLM.
    - ~14.7 tok/s, ~110 GB memory. Use only with TRT-LLM; vLLM is unstable on GB10.
 
 ---
 
 ## Next steps
 
-- Run `tool-eval-bench` on our fastest recipes to measure agentic quality, not just speed.
-- Test Qwen 3.6 35B A3B Q8_K_XL (GGUF) and Qwopus 3.6 27B Coder MTP from the MiaAI ranking on DGX Spark.
-- Fix audio decoding for Nemotron-3 Nano Omni.
+- Add quality measurements with agentic benchmarks on top of throughput numbers.
+- Test additional models in GGUF and MTP variants to compare quality vs speed trade-offs.
+- Resolve audio decoding for Nemotron-3 Nano Omni.
 - Add LiteLLM proxy recipes to expose multiple models on different ports.
+- Expand coverage to other high-memory edge devices beyond DGX Spark.
 
 ---
 
@@ -172,10 +174,10 @@ Based on throughput, memory headroom and tool-calling support on DGX Spark and e
 
 This repository is maintained by **Cristian Tala** as part of a broader set of AI benchmark and optimization projects:
 
-- [`ctala/ai-benchmarks-alternativos`](https://github.com/ctala/ai-benchmarks-alternativos) — Comparative AI benchmarks covering cloud, local and edge deployment scenarios.
-- [benchmarks.cristiantala.com](https://benchmarks.cristiantala.com/) — Published benchmark reports and recommendations for choosing the right model and infrastructure in each case.
+- [`ctala/ai-benchmarks-alternativos`](https://github.com/ctala/ai-benchmarks-alternativos) — Comparative AI benchmarks covering cloud, local and edge deployment scenarios, focused on choosing the right model and infrastructure for each case.
+- [benchmarks.cristiantala.com](https://benchmarks.cristiantala.com/) — Published benchmark reports and recommendations.
 
-The work here focuses specifically on local, high-memory edge AI hardware such as the NVIDIA DGX Spark, while the projects above cover a wider range of cloud and on-premise alternatives.
+The work in this repo focuses specifically on local, high-memory edge AI hardware such as the NVIDIA DGX Spark.
 
 ---
 
