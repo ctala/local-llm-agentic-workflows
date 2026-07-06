@@ -303,7 +303,26 @@ http://<spark-ip>:4000/v1
 
 Make sure your firewall allows port 4000 on the Spark if you want remote access. Remember that in this configuration the proxy has no authentication, so only expose it inside a trusted network.
 
-### Test the proxy
+On the Spark, find its LAN IP with:
+
+```bash
+hostname -I
+```
+
+If the other machine cannot reach port 4000, open it. Examples:
+
+```bash
+# Ubuntu / ufw
+sudo ufw allow 4000/tcp
+
+# Or generic iptables
+sudo iptables -I INPUT -p tcp --dport 4000 -j ACCEPT
+```
+
+> **Why LiteLLM and not vLLM directly?**  
+> The vLLM container on the Spark usually binds `localhost:8000`. Even when it binds `0.0.0.0:8000`, it is a single model and has no auth. LiteLLM gives you one stable, network-exposed endpoint that can route to whichever model is currently loaded, and lets you keep the vLLM port closed to the outside.
+
+### Test the proxy from the Spark
 
 Because auth is disabled, any non-empty key works:
 
@@ -319,6 +338,119 @@ curl http://localhost:4000/v1/chat/completions \
     "messages": [{"role": "user", "content": "hola"}],
     "max_tokens": 64
   }'
+```
+
+### Test the proxy from another machine on the network
+
+Replace `<spark-ip>` with the LAN IP of the Spark (e.g. `192.168.88.190`):
+
+```bash
+# List available models
+curl http://<spark-ip>:4000/v1/models \
+  -H "Authorization: Bearer sk-spark-local"
+
+# Quick chat completion with thinking disabled (fast alias)
+curl http://<spark-ip>:4000/v1/chat/completions \
+  -H "Authorization: Bearer sk-spark-local" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3.6-35b-a3b-vllm-fast",
+    "messages": [{"role": "user", "content": "hola"}],
+    "max_tokens": 64,
+    "temperature": 0.7
+  }'
+
+# Same with reasoning enabled
+curl http://<spark-ip>:4000/v1/chat/completions \
+  -H "Authorization: Bearer sk-spark-local" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3.6-35b-a3b-vllm",
+    "messages": [{"role": "user", "content": "explain this bug"}],
+    "max_tokens": 512,
+    "temperature": 0.7
+  }'
+```
+
+### Use the remote endpoint in a client
+
+Any OpenAI-compatible client works. Example with the official Python SDK from the remote machine:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://<spark-ip>:4000/v1",
+    api_key="sk-spark-local",  # any non-empty string; auth is disabled
+)
+
+response = client.chat.completions.create(
+    model="qwen3.6-35b-a3b-vllm-fast",
+    messages=[{"role": "user", "content": "hola"}],
+    max_tokens=64,
+    temperature=0.7,
+)
+print(response.choices[0].message.content)
+```
+
+### Connect Hermes from another machine
+
+On the remote PC, add a provider that points to the Spark's LiteLLM proxy:
+
+```yaml
+# ~/.hermes/config.yaml on the remote machine
+providers:
+  spark-qwen-fast:
+    base_url: http://<spark-ip>:4000/v1
+    name: Spark Qwen 35B-A3B (no thinking, remote)
+    api_key: sk-spark-local
+    model: qwen3.6-35b-a3b-vllm-fast
+    context_length: 262144
+
+  spark-qwen-think:
+    base_url: http://<spark-ip>:4000/v1
+    name: Spark Qwen 35B-A3B (thinking, remote)
+    api_key: sk-spark-local
+    model: qwen3.6-35b-a3b-vllm
+    context_length: 262144
+```
+
+Run:
+
+```bash
+hermes chat --provider spark-qwen-fast
+```
+
+### Connect Opencode from another machine
+
+On the remote PC, add a LiteLLM provider in `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "provider": {
+    "spark-litellm-remote": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Spark LiteLLM (remote LAN)",
+      "options": {
+        "baseURL": "http://<spark-ip>:4000/v1",
+        "headers": {
+          "Authorization": "Bearer sk-spark-local"
+        }
+      },
+      "models": {
+        "qwen3.6-35b-a3b-vllm": { "name": "Qwen3.6 35B-A3B (think, remote)" },
+        "qwen3.6-35b-a3b-vllm-fast": { "name": "Qwen3.6 35B-A3B (no think, remote)" }
+      }
+    }
+  },
+  "model": "spark-litellm-remote/qwen3.6-35b-a3b-vllm-fast"
+}
+```
+
+Run:
+
+```bash
+opencode run -m spark-litellm-remote/qwen3.6-35b-a3b-vllm-fast "hola"
 ```
 
 ---
