@@ -66,21 +66,22 @@ model:
 
 ### Through LiteLLM proxy
 
-If you are using the LiteLLM proxy at `http://localhost:4000/v1`, add a provider that points to it:
+If you are using the LiteLLM proxy at `http://localhost:4000/v1`, add a provider that points to it. Because the proxy runs in no-auth mode (see LiteLLM setup below), any non-empty API key works; the example uses `key_env` so Hermes reads the key from your shell:
 
 ```yaml
 providers:
   litellm-qwen-vllm-262k:
     base_url: http://localhost:4000/v1
     name: Qwen 3.6 35B-A3B vLLM via LiteLLM
-    api_key: sk-spark-local
+    key_env: LITELLM_MASTER_KEY
     model: qwen3.6-35b-a3b-vllm
     context_length: 262144
 ```
 
-Use it:
+Export the key in your shell (the value does not need to match anything in LiteLLM; it just must be non-empty):
 
 ```bash
+export LITELLM_MASTER_KEY=sk-spark-local
 hermes chat --provider litellm-qwen-vllm-262k -m qwen3.6-35b-a3b-vllm
 ```
 
@@ -110,7 +111,7 @@ providers:
     context_length: 262144
 ```
 
-Or via LiteLLM:
+Or via LiteLLM (any non-empty `api_key` works because the proxy runs in no-auth mode):
 
 ```yaml
 providers:
@@ -198,11 +199,19 @@ Set the active model:
 
 LiteLLM gives you one OpenAI-compatible endpoint that can route to multiple local (or cloud) backends and can be exposed to other machines on the network.
 
+### Important: auth mode
+
+This setup runs LiteLLM **without DB-backed user authentication**. It is intended for a local machine or a trusted LAN. Any client that sends a non-empty `Authorization: Bearer <key>` header can use the proxy. This avoids needing a Postgres/Prisma database on the Spark, which would consume extra memory.
+
+If you need per-key access control, install Prisma, configure a database, and set `master_key: os.environ/LITELLM_MASTER_KEY` instead of `disable_user_auth: true`.
+
 ### Config file
 
 Example `/home/ctala/litellm/config.yaml`:
 
 ```yaml
+disable_user_auth: true
+
 model_list:
   # vLLM Qwen 3.6 35B-A3B (262K context)
   - model_name: qwen3.6-35b-a3b-vllm
@@ -232,7 +241,40 @@ litellm_settings:
   num_retries: 1
 
 general_settings:
-  master_key: os.environ/LITELLM_MASTER_KEY
+  # No master_key / DB auth. See note above.
+  disable_user_auth: true
+```
+
+### Wrapper script for systemd
+
+Create `/home/ctala/litellm/run-no-auth.sh` so the systemd service can load `.env` (needed for cloud keys such as `MINIMAX_API_KEY`) while keeping `LITELLM_MASTER_KEY` unset:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/.env"
+unset LITELLM_MASTER_KEY
+exec "${SCRIPT_DIR}/.venv/bin/litellm" \
+  --config "${SCRIPT_DIR}/config.yaml" \
+  --host 0.0.0.0 --port 4000 --num_workers 2
+```
+
+Make it executable:
+
+```bash
+chmod +x /home/ctala/litellm/run-no-auth.sh
+```
+
+Then update `~/.config/systemd/user/litellm-proxy.service`:
+
+```ini
+[Service]
+Type=simple
+ExecStart=/home/ctala/litellm/run-no-auth.sh
+WorkingDirectory=/home/ctala/litellm
+Restart=always
+RestartSec=5
 ```
 
 ### Start LiteLLM
@@ -248,8 +290,7 @@ Or manually:
 
 ```bash
 cd /home/ctala/litellm
-source .venv/bin/activate
-litellm --config config.yaml --host 0.0.0.0 --port 4000 --num_workers 2
+./run-no-auth.sh
 ```
 
 ### Expose to the network
@@ -260,16 +301,18 @@ Because LiteLLM is started with `--host 0.0.0.0`, it listens on all interfaces. 
 http://<spark-ip>:4000/v1
 ```
 
-Make sure your firewall allows port 4000 on the Spark if you want remote access.
+Make sure your firewall allows port 4000 on the Spark if you want remote access. Remember that in this configuration the proxy has no authentication, so only expose it inside a trusted network.
 
 ### Test the proxy
 
+Because auth is disabled, any non-empty key works:
+
 ```bash
 curl http://localhost:4000/v1/models \
-  -H "Authorization: Bearer $LITELLM_MASTER_KEY"
+  -H "Authorization: Bearer sk-spark-local"
 
 curl http://localhost:4000/v1/chat/completions \
-  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Authorization: Bearer sk-spark-local" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "qwen3.6-35b-a3b-vllm",
