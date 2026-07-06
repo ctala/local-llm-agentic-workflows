@@ -323,13 +323,115 @@ curl http://localhost:4000/v1/chat/completions \
 
 ---
 
+## Switching between thinking and no-thinking modes
+
+Qwen 3.6 is a hybrid reasoning model: by default it emits a long internal chain-of-thought (`<think>...</think>`) before the final answer. vLLM exposes this through the chat-template flag `enable_thinking` inside `chat_template_kwargs`:
+
+- `enable_thinking: true`  → reasoning mode (higher quality for hard tasks, slower).
+- `enable_thinking: false` → non-reasoning mode (faster, lower latency, good for routine agent turns).
+
+The agent frameworks themselves do **not** send this flag automatically today, so the cleanest way to choose a mode is to expose **two separate model aliases** and pick the one you want for each task or session.
+
+### Hermes
+
+Hermes has a `/reasoning` command (`/reasoning none`, `/reasoning medium`, etc.) and an `agent.reasoning_effort` setting. Those map to provider-specific formats such as OpenRouter's `extra_body.reasoning`, Kimi's `extra_body.thinking`, or LM Studio's top-level `reasoning_effort`.
+
+For a **local vLLM/Qwen** endpoint, however, Hermes' generic `custom` provider does not translate `/reasoning` into `chat_template_kwargs.enable_thinking`. Therefore:
+
+- `/reasoning none` will **not** disable Qwen 3.6 thinking when talking directly to vLLM.
+- Use **two providers or two LiteLLM aliases** instead:
+
+```yaml
+providers:
+  spark-qwen-think:
+    base_url: http://localhost:4000/v1
+    name: Spark Qwen 35B-A3B (thinking)
+    key_env: LITELLM_MASTER_KEY
+    model: qwen3.6-35b-a3b-vllm
+    context_length: 262144
+
+  spark-qwen-fast:
+    base_url: http://localhost:4000/v1
+    name: Spark Qwen 35B-A3B (no thinking)
+    key_env: LITELLM_MASTER_KEY
+    model: qwen3.6-35b-a3b-vllm-fast
+    context_length: 262144
+```
+
+Switch at runtime:
+
+```bash
+hermes chat --provider spark-qwen-think  # reasoning mode
+hermes chat --provider spark-qwen-fast   # non-reasoning mode
+```
+
+If you want a single default and only occasionally change mode, set `spark-qwen-think` as default and create a short `/fast` slash command or shell alias that launches Hermes with `--provider spark-qwen-fast`.
+
+### OpenClaw
+
+OpenClaw has been superseded by Hermes and has no dedicated reasoning/no-reasoning switch for local vLLM endpoints. Migrate with:
+
+```bash
+hermes claw migrate
+```
+
+Then use the two-provider pattern above.
+
+### Opencode
+
+Opencode supports `--variant <effort>` and `--thinking` flags, but they control **display** of reasoning blocks or provider-specific reasoning effort, not Qwen's `enable_thinking` chat-template flag. There is no documented way to send `chat_template_kwargs` per model in `opencode.json`.
+
+Use two model entries and select the active one:
+
+```json
+{
+  "provider": {
+    "spark-litellm": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Spark LiteLLM",
+      "options": {
+        "baseURL": "http://localhost:4000/v1",
+        "headers": { "Authorization": "Bearer sk-spark-local" }
+      },
+      "models": {
+        "qwen3.6-35b-a3b-vllm":      { "name": "Qwen3.6 35B-A3B (think)" },
+        "qwen3.6-35b-a3b-vllm-fast": { "name": "Qwen3.6 35B-A3B (no think)" }
+      }
+    }
+  },
+  "model": "spark-litellm/qwen3.6-35b-a3b-vllm"
+}
+```
+
+Switch at runtime:
+
+```bash
+# thinking mode
+opencode run -m spark-litellm/qwen3.6-35b-a3b-vllm "explain this bug"
+
+# non-thinking mode
+opencode run -m spark-litellm/qwen3.6-35b-a3b-vllm-fast "summarize this file"
+```
+
+### Recommended practice for agents
+
+| Pattern | When to use |
+|---------|-------------|
+| **Two aliases** (`*-vllm` / `*-vllm-fast`) | Default. Pick the mode per task or per agent. |
+| LiteLLM proxy | Required when multiple tools (Hermes, Opencode, Open WebUI, n8n) share the same backend. |
+| Direct vLLM | Fine for a single tool on the same machine, but you still need two provider blocks to toggle thinking. |
+
+For routine agent turns (file edits, web searches, small code generation), the no-thinking alias is usually faster and wastes fewer tokens. Reserve the thinking alias for architecture decisions, complex debugging, or multi-step planning.
+
+---
+
 ## Choosing the right model alias
 
-| Alias | Backend | Context | Use case |
-|-------|---------|---------|----------|
-| `qwen3.6-35b-a3b` | Direct vLLM | 262K | Direct connection from Hermes/Opencode |
-| `qwen3.6-35b-a3b-vllm` | LiteLLM → vLLM | 262K | Via LiteLLM, with thinking enabled |
-| `qwen3.6-35b-a3b-vllm-fast` | LiteLLM → vLLM | 262K | Via LiteLLM, thinking disabled |
+| Alias | Backend | Context | Thinking | Use case |
+|-------|---------|---------|----------|----------|
+| `qwen3.6-35b-a3b` | Direct vLLM | 262K | server default | Direct connection from Hermes/Opencode |
+| `qwen3.6-35b-a3b-vllm` | LiteLLM → vLLM | 262K | enabled | Via LiteLLM, reasoning mode |
+| `qwen3.6-35b-a3b-vllm-fast` | LiteLLM → vLLM | 262K | disabled | Via LiteLLM, non-reasoning mode |
 
 For agentic work that benefits from reasoning, use the `*-vllm` variant. For faster, non-reasoning turns, use `*-vllm-fast`.
 
