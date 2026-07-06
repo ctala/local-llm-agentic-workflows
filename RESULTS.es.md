@@ -287,6 +287,42 @@ docker run -d --name gemma4-31b \
     --tool-call-parser pythonic
 ```
 
+### 9. Qwen 3.6 35B-A3B con contexto extremo (262K × 3 sesiones)
+
+Requiere descargar `RedHatAI/Qwen3.6-35B-A3B-NVFP4`. Esta es la configuración recomendada para agentes que necesitan el máximo contexto posible en el Spark.
+
+```bash
+#!/usr/bin/env bash
+# run-qwen36-35b-a3b-extreme-context-3seq.sh
+
+MODEL_DIR="${HOME}/vllm/qwen3.6-35b-a3b-nvfp4-redhat"
+
+docker run -d --name qwen36-35b-a3b-extreme3-8000 \
+  --gpus all \
+  --ipc host \
+  --network host \
+  --shm-size 64gb \
+  -v "${MODEL_DIR}:/models/qwen3.6" \
+  -e HF_HOME=/models \
+  vllm/vllm-openai:gemma4-0505-cu130 \
+    --model /models/qwen3.6 \
+    --served-model-name qwen3.6-35b-a3b \
+    --host 0.0.0.0 --port 8000 \
+    --quantization compressed-tensors \
+    --moe-backend marlin \
+    --kv-cache-dtype fp8 \
+    --max-model-len 262144 \
+    --max-num-seqs 3 \
+    --max-num-batched-tokens 32768 \
+    --gpu-memory-utilization 0.95 \
+    --enable-prefix-caching \
+    --enable-auto-tool-choice \
+    --tool-call-parser pythonic \
+    --trust-remote-code
+```
+
+> **No recomendado para producción**: `--max-num-seqs 4` carga el modelo pero deja ~1 GB libre, haciendo el Spark vulnerable a colgues. Quedarse en 3 sesiones da estabilidad real.
+
 ---
 
 ## Nemotron-3 Super 120B-A12B con vLLM: por qué no funcionó
@@ -347,6 +383,54 @@ Aunque los pesos en disco ocupan ~75 GB, al descomprimir FP4 → BF16 vía Marli
 El mismo checkpoint con `trtllm-serve --backend pytorch --max_seq_len 8192 --max_batch_size 1 --kv_cache_dtype fp8` carga y sirve establemente a **~14.7 tok/s** usando ~110 GB. TRT-LLM reserva un presupuesto de memoria fijo (modelo + KV cache para seq_len/batch dados + activaciones) en lugar del esquema porcentual y dinámico de vLLM.
 
 **Conclusión**: en DGX Spark, **Nemotron-3 Super 120B-A12B solo debe usarse con TensorRT-LLM**. vLLM es viable para Nemotron-3 Nano (30B) y Nano Omni (30B multimodal), pero no para el Super.
+
+---
+
+## Escalado extremo de contexto: Qwen 3.6 35B-A3B
+
+Para flujos de agentes que necesitan ingerir contextos muy largos (bases de código, historial de conversación, RAG, trazas multi-turno), probamos hasta dónde escala `Qwen3.6-35B-A3B-NVFP4` en el DGX Spark. Usamos vLLM con:
+
+```bash
+--max-model-len 262144 \
+--max-num-seqs 3 \
+--max-num-batched-tokens 32768 \
+--kv-cache-dtype fp8 \
+--gpu-memory-utilization 0.95
+```
+
+`--max-num-seqs 4` también se evaluó, pero dejaba solo ~1 GB de memoria unificada libre y hacía el sistema vulnerable a picos de memoria; **3 sesiones concurrentes es la configuración estable**.
+
+### Escalado de contexto en una sola sesión
+
+| Tokens de entrada | Tokens de salida | TTFT | Decode tok/s | Notas |
+|-------------------|------------------|------|--------------|-------|
+| 1,000 | 32 | 0.28 s | 45.57 | Línea base caliente. |
+| 50,000 | 64 | 27.1 s | 45.66 | Primera llamada grande; incluye algo de JIT warmup. |
+| 100,000 | 64 | 22.87 s | 39.80 | TTFT más rápido que 50K porque los kernels ya están calientes. |
+| 200,000 | 64 | 65.45 s | 33.17 | Estable, memoria ~120 GB. |
+| 262,000 | 64 | 56.49 s | 30.22 | Cerca del límite duro del modelo (262,144 tokens). |
+
+### Escalado de contexto concurrente (3 sesiones)
+
+| Tokens/sesión | Tiempo total | TTFT por sesión | Decode tok/s por sesión | Notas |
+|---------------|--------------|-----------------|-------------------------|-------|
+| 50,000 | 4.28 s | 1.28–2.09 s | 20.72–28.33 | Excelente interactividad. |
+| 100,000 | 4.59 s | 1.88–2.81 s | 21.54–32.69 | Aún muy responsivo. |
+| 200,000 | 4.87 s | 1.26–3.06 s | 14.39–28.23 | Prefill por chunks mantiene el tiempo total bajo. |
+| 262,000 | 92.32 s | 41.93–89.87 s | 1.13–23.44 | Funciona, pero el TTFT ya es notorio. |
+
+### Comportamiento de memoria
+
+- **En reposo después de cargar**: ~119 GB usados / ~121 GB totales, ~2 GB libres.
+- **Durante prefill 3×262K**: ~120 GB usados, ~1.5 GB libres, ~6 GB de swap en uso.
+- **Estable**: sin OOM, sin colgarse, sin reinicios obligatorios durante estas pruebas.
+
+### Guía práctica para agentes
+
+- **Turno típico de agente**: agentes tipo OpenClaw / Hermes suelen usar **8K–32K tokens** de contexto activo por sesión.
+- **Configuración de producción conservadora**: **3 sesiones paralelas × 64K de contexto** corren con TTFT sub-segundo y dejan margen cómodo.
+- **Máximo contexto por sesión**: se alcanza **~262K tokens** con 3 sesiones concurrentes; úsalo para tareas ocasionales de largo contexto, no como default permanente.
+- **No uses 4 sesiones a 262K** a menos que la máquina esté dedicada a un solo modelo y puedas tolerar colgues por picos de memoria.
 
 ---
 
@@ -442,10 +526,12 @@ Dado lo anterior, **vLLM es la opción más rápida y sencilla hoy** para Gemma 
 Para uso con agentes locales en DGX Spark, la configuración ganadora es:
 
 - **Gemma 4 26B-A4B community + parche** → ~49.5 tok/s, tool calling, bajo uso de VRAM.
-- Alternativa de alta calidad: **Qwen 3.6 35B-A3B RedHatAI** → ~42.2 tok/s, también con tool calling.
+- Alternativa de alta calidad y máximo contexto: **Qwen 3.6 35B-A3B RedHatAI** → ~42.2 tok/s, tool calling, soporte imagen/video y **hasta 3 sesiones paralelas de 262K tokens de contexto**.
 - Alternativa oficial NVIDIA (TensorRT-LLM): **Qwen 3.6 35B-A3B MLP-only NVFP4** cuantizado desde BF16 → ~34.4 tok/s.
 
 Gemma 4 31B dense debe reservarse solo para tareas donde la calidad del modelo denso justifique los ~7 tok/s.
+
+**Si tu framework de agentes (OpenClaw, Hermes, etc.) necesita la ventana de contexto más grande posible en un solo GPU local**, Qwen 3.6 35B-A3B en vLLM es la opción clara: entrega el límite de 262K tokens por sesión con 3 sesiones concurrentes y se mantiene estable.
 
 **Nemotron 3**:
 - **Nano 30B-A3B BF16**: ~28.8 tok/s con TRT-LLM (~118 GB) o ~28.3 tok/s con vLLM (~72 GB). Elige TRT-LLM si prefieres el stack oficial, vLLM si quieres dejar más memoria libre.

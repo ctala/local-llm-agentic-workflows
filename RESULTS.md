@@ -111,6 +111,54 @@ TRT-LLM reserves a fixed memory budget (model + KV cache for the given seq_len/b
 
 ---
 
+## Extreme context scaling: Qwen 3.6 35B-A3B
+
+For agentic workflows that ingest very long contexts (codebases, conversation history, RAG dumps, multi-turn agent traces) we tested how far `Qwen3.6-35B-A3B-NVFP4` can scale on the DGX Spark. We used vLLM with:
+
+```bash
+--max-model-len 262144 \
+--max-num-seqs 3 \
+--max-num-batched-tokens 32768 \
+--kv-cache-dtype fp8 \
+--gpu-memory-utilization 0.95
+```
+
+`--max-num-seqs 4` was also evaluated, but it left only ~1 GB of free unified memory and made the system vulnerable to memory spikes; **3 concurrent sequences is the stable configuration**.
+
+### Single-sequence context scaling
+
+| Input tokens | Output tokens | TTFT | Decode tok/s | Notes |
+|--------------|---------------|------|--------------|-------|
+| 1,000 | 32 | 0.28 s | 45.57 | Warm baseline. |
+| 50,000 | 64 | 27.1 s | 45.66 | First large-context call; includes some JIT warmup. |
+| 100,000 | 64 | 22.87 s | 39.80 | Faster TTFT than 50K because kernels are warm. |
+| 200,000 | 64 | 65.45 s | 33.17 | Stable, memory ~120 GB. |
+| 262,000 | 64 | 56.49 s | 30.22 | Near the model's hard limit (262,144 tokens). |
+
+### Concurrent-session context scaling (3 sessions)
+
+| Input tokens/session | Wall time | Session TTFTs | Session decode tok/s | Notes |
+|----------------------|-----------|---------------|----------------------|-------|
+| 50,000 | 4.28 s | 1.28–2.09 s | 20.72–28.33 | Excellent interactivity. |
+| 100,000 | 4.59 s | 1.88–2.81 s | 21.54–32.69 | Still very responsive. |
+| 200,000 | 4.87 s | 1.26–3.06 s | 14.39–28.23 | Chunked prefill keeps wall time low. |
+| 262,000 | 92.32 s | 41.93–89.87 s | 1.13–23.44 | Works, but TTFT becomes noticeable. |
+
+### Memory behavior
+
+- **At rest after loading**: ~119 GB used / ~121 GB total, ~2 GB available.
+- **During 3×262K prefill**: ~120 GB used, ~1.5 GB available, ~6 GB swap in use.
+- **Stable**: no OOM, no hang, no reboot required during these tests.
+
+### Practical guidance for agents
+
+- **Average agent turn**: OpenClaw / Hermes-style agents typically use **8K–32K tokens** of active context per session.
+- **Conservative production setting**: **3 parallel sessions × 64K context** runs with sub-second TTFT and leaves comfortable headroom.
+- **Maximum context per session**: **~262K tokens** is achievable with 3 concurrent sessions; use it for occasional long-context tasks, not as the steady-state default.
+- **Do not use 4 sessions at 262K** unless the machine is dedicated to a single model and you can tolerate hangs from memory spikes.
+
+---
+
 ## Launch scripts
 
 Ready-to-run recipes are in [`scripts/`](scripts/):
@@ -123,6 +171,7 @@ Ready-to-run recipes are in [`scripts/`](scripts/):
 | `scripts/run-gemma4-31b.sh` | Gemma 4 31B IT NVFP4 on vLLM |
 | `scripts/run-nemotron3-nano-30b-a3b-trtllm.sh` | Nemotron-3 Nano BF16 on TRT-LLM |
 | `scripts/run-nemotron3-nano-30b-a3b-vllm.sh` | Nemotron-3 Nano BF16 on vLLM |
+| `scripts/run-qwen36-35b-a3b-extreme-context-3seq.sh` | Qwen 3.6 35B-A3B with 262K context × 3 sessions on vLLM |
 | `scripts/run-nemotron3-super-120b-a12b-trtllm.sh` | Nemotron-3 Super NVFP4 on TRT-LLM |
 | `scripts/run-nemotron3-nano-omni-vllm.sh` | Nemotron-3 Nano Omni NVFP4 multimodal on vLLM |
 
@@ -153,9 +202,11 @@ python3 benchmarks/bench_model.py gemma-4-26b-a4b 512
 For agentic workflows on DGX Spark and similar 96–128 GB edge AI workstations:
 
 - **Gemma 4 26B-A4B community + patch** → ~49.5 tok/s, tool calling, low VRAM.
-- **Qwen 3.6 35B-A3B RedHatAI** → ~42.2 tok/s, also with tool calling and image/video support.
+- **Qwen 3.6 35B-A3B RedHatAI** → ~42.2 tok/s, tool calling, image/video support, and **up to 3×262K context sessions**.
 - **Qwen 3.6 35B-A3B MLP-only NVFP4** (custom TRT-LLM) → ~34.4 tok/s if you prefer the official NVIDIA stack.
 - **Nemotron-3-Nano-Omni** → ~40.0 tok/s, text + image, best official multimodal option.
 - **Nemotron-3-Super-120B-A12B** → ~14.7 tok/s with TRT-LLM only, for quality-first workloads.
 
 Gemma 4 31B dense should be reserved only for tasks where the dense model quality justifies ~7 tok/s.
+
+**If your agent framework (OpenClaw, Hermes, etc.) needs the largest possible context window on a single local GPU**, Qwen 3.6 35B-A3B on vLLM is the clear choice: it delivers the model's full 262K context length across 3 parallel sessions while remaining stable.

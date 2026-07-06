@@ -14,11 +14,11 @@ Use cases covered include chatbots, coding assistants, agentic workflows with **
 
 For local LLM deployment on DGX Spark or equivalent 96–128 GB edge hardware, start here:
 
-| Priority | Model | Framework | Decode tok/s | Memory | Tool calling | Multimodal |
+| Priority | Model | Framework | Decode tok/s | Memory | Tool calling | Multimodal | Max context tested |
 |----------|-------|-----------|--------------|--------|--------------|------------|
-| **Speed** | Gemma 4 26B-A4B IT (community patch) | vLLM | **~49.5** | ~22 GB | ✅ | ✅ image/video |
-| **Quality/speed balance** | Qwen 3.6 35B-A3B | vLLM | **~42.2** | ~22 GB | ✅ | ✅ image/video |
-| **Official NVIDIA multimodal** | Nemotron-3 Nano Omni 30B-A3B | vLLM | **~40.0** | ~40 GB | ✅ | ✅ image |
+| **Speed** | Gemma 4 26B-A4B IT (community patch) | vLLM | **~49.5** | ~22 GB | ✅ | ✅ image/video | 128K |
+| **Quality/speed balance** | Qwen 3.6 35B-A3B | vLLM | **~42.2** | ~22 GB | ✅ | ✅ image/video | **262K** |
+| **Official NVIDIA multimodal** | Nemotron-3 Nano Omni 30B-A3B | vLLM | **~40.0** | ~40 GB | ✅ | ✅ image | 128K |
 
 For quality-first workloads where speed is less important:
 
@@ -60,6 +60,7 @@ The recipes were tested on the **NVIDIA DGX Spark** and should work on any ARM64
 ├── scripts/                      # Docker launch recipes and helpers
 │   ├── run-gemma4-26b-a4b.sh
 │   ├── run-qwen36-35b-a3b.sh
+│   ├── run-qwen36-35b-a3b-extreme-context-3seq.sh
 │   ├── run-qwen36-35b-a3b-trtllm.sh
 │   ├── run-gemma4-31b.sh
 │   ├── run-nemotron3-nano-30b-a3b-trtllm.sh
@@ -97,16 +98,16 @@ The recipes were tested on the **NVIDIA DGX Spark** and should work on any ARM64
 
 Benchmarks use a ~120-token prompt, `max_tokens=512`, temperature 0.7 and streaming, reporting decode tok/s and hot TTFT.
 
-| Model | Checkpoint | Framework | Decode tok/s | Memory | Tool calling | Multimodal | Recommendation |
+| Model | Checkpoint | Framework | Decode tok/s | Memory | Tool calling | Multimodal | Max context | Recommendation |
 |-------|------------|-----------|--------------|--------|--------------|------------|----------------|
-| **Gemma 4 26B-A4B** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + patch | vLLM | **~49.5** | ~22 GB | ✅ | ✅ image/video | **Fastest local LLM for text agents** |
-| **Qwen 3.6 35B-A3B** | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | vLLM | **~42.2** | ~22 GB | ✅ | ✅ image/video | **Best quality/speed trade-off** |
-| Qwen 3.6 35B-A3B | Custom MLP-only NVFP4 | TRT-LLM | ~34.4 | ~41 GB | ✅ | ❌ text only | Official NVIDIA stack |
-| Nemotron-3 Nano 30B-A3B | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | TRT-LLM | ~28.8 | ~118 GB | ✅ | ❌ text only | Official dense model; leaves little free memory |
-| Nemotron-3 Nano 30B-A3B | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | vLLM | ~28.3 | ~72 GB | ✅ | ❌ text only | vLLM alternative; stop other GPU services first |
-| **Nemotron-3 Super 120B-A12B** | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4` | TRT-LLM | **~14.7** | ~110 GB | ✅ | ❌ text only | Best official quality; **not viable with vLLM on GB10** |
-| **Nemotron-3 Nano Omni 30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` | vLLM | **~40.0** | ~40 GB | ✅ | ✅ image | **Best official multimodal option** |
-| Gemma 4 31B | `nvidia/Gemma-4-31B-IT-NVFP4` | vLLM | ~6.7 | ~31 GB | ✅ | ✅ image/video | Use only if you need the dense variant |
+| **Gemma 4 26B-A4B** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + patch | vLLM | **~49.5** | ~22 GB | ✅ | ✅ image/video | 128K | **Fastest local LLM for text agents** |
+| **Qwen 3.6 35B-A3B** | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | vLLM | **~42.2** | ~22 GB | ✅ | ✅ image/video | **262K** | **Best quality/speed trade-off; longest context** |
+| Qwen 3.6 35B-A3B | Custom MLP-only NVFP4 | TRT-LLM | ~34.4 | ~41 GB | ✅ | ❌ text only | 32K | Official NVIDIA stack |
+| Nemotron-3 Nano 30B-A3B | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | TRT-LLM | ~28.8 | ~118 GB | ✅ | ❌ text only | 8K | Official dense model; leaves little free memory |
+| Nemotron-3 Nano 30B-A3B | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | vLLM | ~28.3 | ~72 GB | ✅ | ❌ text only | 8K | vLLM alternative; stop other GPU services first |
+| **Nemotron-3 Super 120B-A12B** | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4` | TRT-LLM | **~14.7** | ~110 GB | ✅ | ❌ text only | 8K | Best official quality; **not viable with vLLM on GB10** |
+| **Nemotron-3 Nano Omni 30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` | vLLM | **~40.0** | ~40 GB | ✅ | ✅ image | 128K | **Best official multimodal option** |
+| Gemma 4 31B | `nvidia/Gemma-4-31B-IT-NVFP4` | vLLM | ~6.7 | ~31 GB | ✅ | ✅ image/video | 128K | Use only if you need the dense variant |
 
 See [`RESULTS.md`](RESULTS.md) for full tables, launch commands and error analysis.
 
@@ -151,11 +152,13 @@ Based on throughput, memory headroom and tool-calling support on DGX Spark and e
    - ~49.5 tok/s, ~22 GB memory. Requires the community patch.
 2. **Best quality/speed balance** → **Qwen 3.6 35B-A3B** (`RedHatAI/Qwen3.6-35B-A3B-NVFP4`) on vLLM.
    - ~42 tok/s, ~22 GB memory, excellent tool calling, image/video support.
-3. **Official NVIDIA multimodal** → **Nemotron-3 Nano Omni 30B-A3B** on vLLM.
+3. **Maximum context for long-document / multi-turn agents** → **Qwen 3.6 35B-A3B** on vLLM with the extreme-context recipe.
+   - Up to **3 parallel sessions × 262K tokens** on DGX Spark; stable with `--max-num-seqs 3`.
+4. **Official NVIDIA multimodal** → **Nemotron-3 Nano Omni 30B-A3B** on vLLM.
    - ~40 tok/s, ~40 GB memory, image support. Audio decoding needs more work.
-4. **Official NVIDIA stack** → **Qwen 3.6 35B-A3B MLP-only NVFP4** on TensorRT-LLM.
+5. **Official NVIDIA stack** → **Qwen 3.6 35B-A3B MLP-only NVFP4** on TensorRT-LLM.
    - ~34.4 tok/s, ~41 GB memory. Requires manual quantization from BF16.
-5. **Quality over speed** → **Nemotron-3 Super 120B-A12B** on TensorRT-LLM.
+6. **Quality over speed** → **Nemotron-3 Super 120B-A12B** on TensorRT-LLM.
    - ~14.7 tok/s, ~110 GB memory. Use only with TRT-LLM; vLLM is unstable on GB10.
 
 ---
@@ -167,6 +170,7 @@ Based on throughput, memory headroom and tool-calling support on DGX Spark and e
 - Resolve audio decoding for Nemotron-3 Nano Omni.
 - Add LiteLLM proxy recipes to expose multiple models on different ports.
 - Expand coverage to other high-memory edge devices beyond DGX Spark.
+- Validate 3×262K context under real OpenClaw / Hermes multi-turn traces.
 
 ---
 
