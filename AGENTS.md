@@ -34,54 +34,41 @@ The LiteLLM proxy binds to `0.0.0.0:4000` and exposes all configured backends un
 
 ## Hermes
 
-### Direct connection to vLLM
+Hermes supports custom OpenAI-compatible endpoints. The cleanest setup for the Spark is to use **one provider that points to the LiteLLM proxy**; LiteLLM then exposes whichever model is currently loaded (Qwen, Gemma, Nemotron, etc.) under a single URL.
 
-Add a provider block to `~/.hermes/config.yaml` under `providers:`:
-
-```yaml
-providers:
-  local-qwen-35b-vllm-262k:
-    base_url: http://localhost:8000/v1
-    name: Spark Qwen 35B-A3B (vLLM 262K)
-    api_key: local-no-key-needed
-    model: qwen3.6-35b-a3b
-    context_length: 262144
-```
-
-Run Hermes with that provider:
-
-```bash
-hermes chat --provider local-qwen-35b-vllm-262k -m qwen3.6-35b-a3b
-```
-
-You can also set it as the default model/provider in the top-level `model:` block:
+Add this to `~/.hermes/config.yaml`:
 
 ```yaml
 model:
-  default: qwen3.6-35b-a3b
-  provider: custom
-  base_url: http://localhost:8000/v1
+  default: qwen3.6-35b-a3b-vllm-fast
+  provider: spark-litellm-local
+  base_url: http://localhost:4000/v1
   context_length: 262144
-```
 
-### Through LiteLLM proxy
-
-If you are using the LiteLLM proxy at `http://localhost:4000/v1`, add a provider that points to it. Because the proxy runs in no-auth mode (see LiteLLM setup below), any non-empty API key works:
-
-```yaml
 providers:
-  litellm-qwen-vllm-262k:
+  spark-litellm-local:
     base_url: http://localhost:4000/v1
-    name: Qwen 3.6 35B-A3B vLLM via LiteLLM
+    name: LiteLLM local
     api_key: sk-spark-local
-    model: qwen3.6-35b-a3b-vllm
+    model: qwen3.6-35b-a3b-vllm-fast
     context_length: 262144
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
 ```
 
-Run Hermes with that provider:
+Because LiteLLM auth is disabled, any non-empty `api_key` works (`sk-spark-local` is just a placeholder).
+
+Run Hermes with the default model:
 
 ```bash
-hermes chat --provider litellm-qwen-vllm-262k -m qwen3.6-35b-a3b-vllm
+hermes chat
+```
+
+Or explicitly pick the thinking model:
+
+```bash
+hermes chat -m qwen3.6-35b-a3b-vllm
 ```
 
 ### Migrating from OpenClaw to Hermes
@@ -98,31 +85,13 @@ This imports OpenClaw-compatible provider definitions into Hermes.
 
 ## OpenClaw
 
-OpenClaw uses the same provider shape as early Hermes configs. Add a block like this to your OpenClaw configuration file (typically `~/.openclaw/config.yaml` or the equivalent path used by your OpenClaw build):
+OpenClaw has been superseded by Hermes and has no dedicated reasoning/no-reasoning switch for local vLLM endpoints. Migrate with:
 
-```yaml
-providers:
-  spark-qwen-vllm:
-    base_url: http://localhost:8000/v1
-    name: Spark Qwen 35B-A3B (vLLM)
-    api_key: local-no-key-needed
-    model: qwen3.6-35b-a3b
-    context_length: 262144
+```bash
+hermes claw migrate
 ```
 
-Or via LiteLLM (any non-empty `api_key` works because the proxy runs in no-auth mode):
-
-```yaml
-providers:
-  spark-litellm-qwen-vllm:
-    base_url: http://localhost:4000/v1
-    name: Spark Qwen 35B-A3B via LiteLLM
-    api_key: sk-spark-local
-    model: qwen3.6-35b-a3b-vllm
-    context_length: 262144
-```
-
-> **Note**: OpenClaw has been superseded by Hermes. If you are still on OpenClaw, consider migrating with `hermes claw migrate` and using the Hermes instructions above.
+Then use the Hermes configuration above.
 
 ---
 
@@ -130,45 +99,14 @@ providers:
 
 Opencode uses a JSON config at `~/.config/opencode/opencode.json`.
 
-### Direct connection to vLLM
-
-Add a provider block:
-
-```json
-{
-  "provider": {
-    "spark-vllm-direct": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Spark vLLM (directo, 262K)",
-      "options": {
-        "baseURL": "http://localhost:8000/v1"
-      },
-      "models": {
-        "qwen3.6-35b-a3b": { "name": "Qwen3.6 35B-A3B (think, 262K)" }
-      }
-    }
-  }
-}
-```
-
-Set it as the active model:
-
-```json
-{
-  "model": "spark-vllm-direct/qwen3.6-35b-a3b"
-}
-```
-
-### Through LiteLLM proxy
-
-Add the model to your existing LiteLLM provider:
+Add a single LiteLLM provider and select the active model:
 
 ```json
 {
   "provider": {
     "spark-litellm": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Spark LiteLLM (local, vía proxy con auth)",
+      "name": "Spark LiteLLM",
       "options": {
         "baseURL": "http://localhost:4000/v1",
         "headers": {
@@ -177,19 +115,22 @@ Add the model to your existing LiteLLM provider:
       },
       "models": {
         "qwen3.6-35b-a3b-vllm": { "name": "Qwen3.6 35B-A3B vLLM (think, 262K)" },
-        "qwen3.6-35b-a3b-vllm-fast": { "name": "Qwen3.6 35B-A3B vLLM (sin thinking, 262K)" }
+        "qwen3.6-35b-a3b-vllm-fast": { "name": "Qwen3.6 35B-A3B vLLM (no think, 262K)" }
       }
     }
-  }
+  },
+  "model": "spark-litellm/qwen3.6-35b-a3b-vllm-fast"
 }
 ```
 
-Set the active model:
+Switch at runtime:
 
-```json
-{
-  "model": "spark-litellm/qwen3.6-35b-a3b-vllm"
-}
+```bash
+# thinking mode
+opencode run -m spark-litellm/qwen3.6-35b-a3b-vllm "explain this bug"
+
+# non-thinking mode
+opencode run -m spark-litellm/qwen3.6-35b-a3b-vllm-fast "summarize this file"
 ```
 
 ---
@@ -394,30 +335,35 @@ print(response.choices[0].message.content)
 
 ### Connect Hermes from another machine
 
-On the remote PC, add a provider that points to the Spark's LiteLLM proxy:
+On the remote PC, use a single LiteLLM provider and switch models with `-m`:
 
 ```yaml
 # ~/.hermes/config.yaml on the remote machine
+model:
+  default: qwen3.6-35b-a3b-vllm-fast
+  provider: spark-litellm-remote
+  base_url: http://<spark-ip>:4000/v1
+  context_length: 262144
+
 providers:
-  spark-qwen-fast:
+  spark-litellm-remote:
     base_url: http://<spark-ip>:4000/v1
-    name: Spark Qwen 35B-A3B (no thinking, remote)
+    name: Spark LiteLLM (remote)
     api_key: sk-spark-local
     model: qwen3.6-35b-a3b-vllm-fast
     context_length: 262144
-
-  spark-qwen-think:
-    base_url: http://<spark-ip>:4000/v1
-    name: Spark Qwen 35B-A3B (thinking, remote)
-    api_key: sk-spark-local
-    model: qwen3.6-35b-a3b-vllm
-    context_length: 262144
 ```
 
-Run:
+Run with the default (fast) model:
 
 ```bash
-hermes chat --provider spark-qwen-fast
+hermes chat
+```
+
+Or explicitly switch to thinking mode:
+
+```bash
+hermes chat -m qwen3.6-35b-a3b-vllm
 ```
 
 ### Connect Opencode from another machine
@@ -461,42 +407,18 @@ Qwen 3.6 is a hybrid reasoning model: by default it emits a long internal chain-
 - `enable_thinking: true`  → reasoning mode (higher quality for hard tasks, slower).
 - `enable_thinking: false` → non-reasoning mode (faster, lower latency, good for routine agent turns).
 
-The agent frameworks themselves do **not** send this flag automatically today, so the cleanest way to choose a mode is to expose **two separate model aliases** and pick the one you want for each task or session.
+The agent frameworks themselves do **not** send this flag automatically today. Because LiteLLM exposes both aliases, the cleanest way to choose a mode is to pick the model alias you want for each task or session.
 
 ### Hermes
 
 Hermes has a `/reasoning` command (`/reasoning none`, `/reasoning medium`, etc.) and an `agent.reasoning_effort` setting. Those map to provider-specific formats such as OpenRouter's `extra_body.reasoning`, Kimi's `extra_body.thinking`, or LM Studio's top-level `reasoning_effort`.
 
-For a **local vLLM/Qwen** endpoint, however, Hermes' generic `custom` provider does not translate `/reasoning` into `chat_template_kwargs.enable_thinking`. Therefore:
-
-- `/reasoning none` will **not** disable Qwen 3.6 thinking when talking directly to vLLM.
-- Use **two providers or two LiteLLM aliases** instead:
-
-```yaml
-providers:
-  spark-qwen-think:
-    base_url: http://localhost:4000/v1
-    name: Spark Qwen 35B-A3B (thinking)
-    api_key: sk-spark-local
-    model: qwen3.6-35b-a3b-vllm
-    context_length: 262144
-
-  spark-qwen-fast:
-    base_url: http://localhost:4000/v1
-    name: Spark Qwen 35B-A3B (no thinking)
-    api_key: sk-spark-local
-    model: qwen3.6-35b-a3b-vllm-fast
-    context_length: 262144
-```
-
-Switch at runtime:
+For a **local vLLM/Qwen** endpoint, however, Hermes' generic reasoning controls do not translate into `chat_template_kwargs.enable_thinking`. Therefore `/reasoning none` will **not** disable Qwen 3.6 thinking. Use the two LiteLLM aliases instead:
 
 ```bash
-hermes chat --provider spark-qwen-think  # reasoning mode
-hermes chat --provider spark-qwen-fast   # non-reasoning mode
+hermes chat -m qwen3.6-35b-a3b-vllm      # reasoning mode
+hermes chat -m qwen3.6-35b-a3b-vllm-fast # non-reasoning mode
 ```
-
-If you want a single default and only occasionally change mode, set `spark-qwen-think` as default and create a short `/fast` slash command or shell alias that launches Hermes with `--provider spark-qwen-fast`.
 
 ### OpenClaw
 
@@ -506,35 +428,13 @@ OpenClaw has been superseded by Hermes and has no dedicated reasoning/no-reasoni
 hermes claw migrate
 ```
 
-Then use the two-provider pattern above.
+Then use the two-model pattern above.
 
 ### Opencode
 
 Opencode supports `--variant <effort>` and `--thinking` flags, but they control **display** of reasoning blocks or provider-specific reasoning effort, not Qwen's `enable_thinking` chat-template flag. There is no documented way to send `chat_template_kwargs` per model in `opencode.json`.
 
 Use two model entries and select the active one:
-
-```json
-{
-  "provider": {
-    "spark-litellm": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Spark LiteLLM",
-      "options": {
-        "baseURL": "http://localhost:4000/v1",
-        "headers": { "Authorization": "Bearer sk-spark-local" }
-      },
-      "models": {
-        "qwen3.6-35b-a3b-vllm":      { "name": "Qwen3.6 35B-A3B (think)" },
-        "qwen3.6-35b-a3b-vllm-fast": { "name": "Qwen3.6 35B-A3B (no think)" }
-      }
-    }
-  },
-  "model": "spark-litellm/qwen3.6-35b-a3b-vllm"
-}
-```
-
-Switch at runtime:
 
 ```bash
 # thinking mode
@@ -550,7 +450,7 @@ opencode run -m spark-litellm/qwen3.6-35b-a3b-vllm-fast "summarize this file"
 |---------|-------------|
 | **Two aliases** (`*-vllm` / `*-vllm-fast`) | Default. Pick the mode per task or per agent. |
 | LiteLLM proxy | Required when multiple tools (Hermes, Opencode, Open WebUI, n8n) share the same backend. |
-| Direct vLLM | Fine for a single tool on the same machine, but you still need two provider blocks to toggle thinking. |
+| Direct vLLM | Only for a single tool on the same machine; you still need two model aliases to toggle thinking. |
 
 For routine agent turns (file edits, web searches, small code generation), the no-thinking alias is usually faster and wastes fewer tokens. Reserve the thinking alias for architecture decisions, complex debugging, or multi-step planning.
 
