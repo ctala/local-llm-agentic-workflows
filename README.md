@@ -168,6 +168,17 @@ Based on throughput, memory headroom and tool-calling support on DGX Spark and e
 
 ---
 
+## Author and related benchmarks
+
+This repository is maintained by **Cristian Tala** as part of a broader set of AI benchmark and optimization projects:
+
+- [`ctala/ai-benchmarks-alternativos`](https://github.com/ctala/ai-benchmarks-alternativos) — Comparative AI benchmarks covering cloud, local and edge deployment scenarios.
+- [benchmarks.cristiantala.com](https://benchmarks.cristiantala.com/) — Published benchmark reports and recommendations for choosing the right model and infrastructure in each case.
+
+The work here focuses specifically on local, high-memory edge AI hardware such as the NVIDIA DGX Spark, while the projects above cover a wider range of cloud and on-premise alternatives.
+
+---
+
 ## License
 
 MIT. See [`LICENSE`](LICENSE).
