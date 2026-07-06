@@ -66,22 +66,21 @@ model:
 
 ### Through LiteLLM proxy
 
-If you are using the LiteLLM proxy at `http://localhost:4000/v1`, add a provider that points to it. Because the proxy runs in no-auth mode (see LiteLLM setup below), any non-empty API key works; the example uses `key_env` so Hermes reads the key from your shell:
+If you are using the LiteLLM proxy at `http://localhost:4000/v1`, add a provider that points to it. Because the proxy runs in no-auth mode (see LiteLLM setup below), any non-empty API key works:
 
 ```yaml
 providers:
   litellm-qwen-vllm-262k:
     base_url: http://localhost:4000/v1
     name: Qwen 3.6 35B-A3B vLLM via LiteLLM
-    key_env: LITELLM_MASTER_KEY
+    api_key: sk-spark-local
     model: qwen3.6-35b-a3b-vllm
     context_length: 262144
 ```
 
-Export the key in your shell (the value does not need to match anything in LiteLLM; it just must be non-empty):
+Run Hermes with that provider:
 
 ```bash
-export LITELLM_MASTER_KEY=sk-spark-local
 hermes chat --provider litellm-qwen-vllm-262k -m qwen3.6-35b-a3b-vllm
 ```
 
@@ -478,14 +477,14 @@ providers:
   spark-qwen-think:
     base_url: http://localhost:4000/v1
     name: Spark Qwen 35B-A3B (thinking)
-    key_env: LITELLM_MASTER_KEY
+    api_key: sk-spark-local
     model: qwen3.6-35b-a3b-vllm
     context_length: 262144
 
   spark-qwen-fast:
     base_url: http://localhost:4000/v1
     name: Spark Qwen 35B-A3B (no thinking)
-    key_env: LITELLM_MASTER_KEY
+    api_key: sk-spark-local
     model: qwen3.6-35b-a3b-vllm-fast
     context_length: 262144
 ```
@@ -559,11 +558,12 @@ For routine agent turns (file edits, web searches, small code generation), the n
 
 ## Choosing the right model alias
 
+With the current vLLM-only setup on the Spark, the usable Qwen 3.6 35B-A3B aliases are the two LiteLLM-routed `*-vllm` models. The non-`-vllm` aliases (e.g. `qwen3.6-35b-a3b`, `qwen3.6-35b-a3b-fast`) previously routed to local llama.cpp/Ollama endpoints and are no longer active.
+
 | Alias | Backend | Context | Thinking | Use case |
 |-------|---------|---------|----------|----------|
-| `qwen3.6-35b-a3b` | Direct vLLM | 262K | server default | Direct connection from Hermes/Opencode |
-| `qwen3.6-35b-a3b-vllm` | LiteLLM → vLLM | 262K | enabled | Via LiteLLM, reasoning mode |
-| `qwen3.6-35b-a3b-vllm-fast` | LiteLLM → vLLM | 262K | disabled | Via LiteLLM, non-reasoning mode |
+| `qwen3.6-35b-a3b-vllm` | LiteLLM → vLLM | 262K | enabled | Reasoning mode (hard tasks, planning) |
+| `qwen3.6-35b-a3b-vllm-fast` | LiteLLM → vLLM | 262K | disabled | Non-reasoning mode (fast routine turns) |
 
 For agentic work that benefits from reasoning, use the `*-vllm` variant. For faster, non-reasoning turns, use `*-vllm-fast`.
 
