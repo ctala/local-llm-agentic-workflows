@@ -1,14 +1,16 @@
-# Local LLMs for Agentic Workflows on NVIDIA DGX Spark
+# Best Local LLMs for Agentic Workflows on DGX Spark & 96–128 GB Edge AI Workstations
 
-Benchmarks and deployment recipes for running local LLMs on the **NVIDIA DGX Spark** (GB10 Grace Blackwell, ARM64/aarch64, 128 GB unified memory, sm_121), focused on agentic workflows with **Hermes**, **OpenClaw**, Open WebUI and n8n.
+Benchmarks and ready-to-run Docker recipes for deploying **local LLMs for agentic workflows** on high-memory edge AI hardware such as the **NVIDIA DGX Spark** (GB10 Grace Blackwell, ARM64/aarch64, 128 GB unified memory, sm_121) and other single-GPU workstations with **96–128 GB of unified or pooled memory**.
 
-> **Critical GB10 limitation**: it has no native FP4 compute. NVFP4 checkpoints run through the **Marlin** backend (vLLM) or the PyTorch backend of TensorRT-LLM, decompressing FP4 → BF16 at runtime. This limits throughput compared to FP4-native GPUs (e.g. B200).
+This repo focuses on **Hermes Agent**, **OpenClaw**, Open WebUI and n8n use cases: multi-turn tool calling, function calling, autonomous planning and multimodal agents. It compares **vLLM** and **TensorRT-LLM** deployments with **NVFP4/Marlin** and **FP8 KV cache**, measuring real decode throughput, memory usage and stability.
+
+> **Critical edge-AI limitation**: the NVIDIA GB10 has no native FP4 compute. NVFP4 checkpoints run through the **Marlin** backend (vLLM) or the PyTorch backend of TensorRT-LLM, decompressing FP4 → BF16 at runtime. This limits throughput compared to FP4-native datacenter GPUs (e.g. B200), but still makes 30B–120B parameter models runnable on a single edge device.
 
 ---
 
 ## Quick answer
 
-For agents on DGX Spark, start with one of these three depending on your priority:
+For agents on DGX Spark or equivalent 96–128 GB edge hardware, start with one of these three depending on your priority:
 
 | Priority | Model | Framework | Decode tok/s | Memory | Tool calling | Multimodal |
 |----------|-------|-----------|--------------|--------|--------------|------------|
@@ -25,18 +27,21 @@ For pure quality when speed is less important:
 
 ---
 
-## Hardware / software base
+## Target hardware
 
-| Component | Value |
-|-----------|-------|
-| Hardware | NVIDIA DGX Spark (GB10 Grace Blackwell) |
-| CPU | 20 cores ARM64 (aarch64) |
-| GPU | NVIDIA GB10 (sm_121) |
-| Memory | 128 GB LPDDR5x unified (~121 GB usable) |
-| Driver NVIDIA | 580.142 |
-| CUDA | 13.0 |
-| Docker | 29.2.1 |
-| NVIDIA Container Toolkit | 1.19.0 |
+The recipes were tested on the **NVIDIA DGX Spark** and should work on any ARM64 or x86_64 single-GPU system with similar memory characteristics:
+
+| Component | DGX Spark value | Typical compatible edge AI workstation |
+|-----------|-----------------|----------------------------------------|
+| CPU | 20 cores ARM64 (aarch64) | ARM64 or x86_64, 16+ cores |
+| GPU | NVIDIA GB10 (sm_121) | Single GPU with 96–128 GB accessible memory |
+| Memory | 128 GB LPDDR5x unified (~121 GB usable) | 96–128 GB unified, pooled or host memory |
+| Driver NVIDIA | 580.142 | Recent 570+ series |
+| CUDA | 13.0 | CUDA 12.6+ / 13.0 |
+| Docker | 29.2.1 | Docker 24+ with NVIDIA Container Toolkit |
+| NVIDIA Container Toolkit | 1.19.0 | 1.14+ |
+
+> Most Docker images used here are ARM64 manifests. If you run x86_64 hardware, replace the image tags with the equivalent x86_64 builds from NVIDIA and vLLM.
 
 ---
 
@@ -45,8 +50,10 @@ For pure quality when speed is less important:
 ```
 .
 ├── README.md                     # This file
-├── RESULTS.md                    # Full benchmark tables and technical notes
-├── SETUP.md                      # Detailed log of attempts, errors and fixes
+├── RESULTS.md                    # Full benchmark tables and technical notes (English)
+├── RESULTS.es.md                 # Spanish version of RESULTS.md
+├── SETUP.md                      # Detailed log of attempts, errors and fixes (English)
+├── SETUP.es.md                   # Spanish version of SETUP.md
 ├── LICENSE                       # MIT
 ├── scripts/                      # Docker launch recipes and helpers
 │   ├── run-gemma4-26b-a4b.sh
@@ -84,7 +91,7 @@ For pure quality when speed is less important:
 
 ---
 
-## Results summary
+## Results summary: local LLM throughput on DGX Spark
 
 | Model | Checkpoint | Framework | Decode tok/s | Memory | Tool calling | Multimodal | Recommendation |
 |-------|------------|-----------|--------------|--------|--------------|------------|----------------|
@@ -101,26 +108,26 @@ See [`RESULTS.md`](RESULTS.md) for full tables, command recipes and error analys
 
 ---
 
-## How this compares to other benchmarks
+## How this compares to other agentic LLM benchmarks
 
-[MiaAI-Lab/Best-Local-Model_Agentic-Workflows_2026](https://github.com/MiaAI-Lab/Best-Local-Model_Agentic-Workflows_2026) evaluates agentic capability using `tool-eval-bench` (84 scenarios, 8 trials) on llama.cpp GGUF quantizations. Their top pick for Hermes Agent is **Qwen 3.6 35B A3B UD Q8_K_XL** (score 91.0), followed by **Qwen 3.6 27B NVFP4** (89.0) and **Qwopus 3.6 27B Coder MTP** (85.2).
+[MiaAI-Lab/Best-Local-Model_Agentic-Workflows_2026](https://github.com/MiaAI-Lab/Best-Local-Model_Agentic-Workflows_2026) evaluates agentic capability using `tool-eval-bench` (84 scenarios, 8 trials) on llama.cpp GGUF quantizations for DGX Spark and similar 96–128 GB units. Their top pick for Hermes Agent is **Qwen 3.6 35B A3B UD Q8_K_XL** (score 91.0), followed by **Qwen 3.6 27B NVFP4** (89.0) and **Qwopus 3.6 27B Coder MTP** (85.2).
 
-This repository focuses on **throughput-optimized deployment** on DGX Spark using vLLM and TensorRT-LLM with FP8 KV cache and NVFP4/Marlin. We have not yet run `tool-eval-bench` quality scores, so the two benchmarks are complementary:
+This repository focuses on **throughput-optimized local deployment** using vLLM and TensorRT-LLM with FP8 KV cache and NVFP4/Marlin. We have not yet run `tool-eval-bench` quality scores, so the two benchmarks are complementary:
 
 - Use MiaAI's work to pick the most capable model for your agent task.
-- Use our recipes to deploy that model at the highest sustainable tok/s on GB10.
+- Use our recipes to deploy that model at the highest sustainable tok/s on GB10-class hardware.
 
-Candidates worth testing next from their ranking:
+### Candidates worth testing next for agentic quality
 
 | Model | Why test | Expected trade-off |
 |-------|----------|--------------------|
-| Qwen 3.6 35B A3B Q8_K_XL (GGUF) | Highest agentic score in their benchmark | Likely slower than NVFP4/vLLM, but may improve reliability |
-| Qwopus 3.6 27B Coder MTP | Fastest reliable tier in their ranking (~2.2 s/turn) | Could be a strong coding/agent model on Spark |
-| Agents-A1 Q8_0 | Purpose-built agent model | Unknown quality/speed on GB10 |
+| **Qwen 3.6 35B A3B Q8_K_XL (GGUF)** | Highest agentic score in their benchmark | Likely slower than NVFP4/vLLM, but may improve reliability |
+| **Qwopus 3.6 27B Coder MTP** | Fastest reliable tier in their ranking (~2.2 s/turn) | Could be a strong coding/agent model on Spark-class hardware |
+| **Agents-A1 Q8_0** | Purpose-built agent model | Unknown quality/speed on GB10 |
 
 ---
 
-## Important memory lesson
+## Important memory lesson for 128 GB unified-memory systems
 
 Before launching large models, stop background services that consume VRAM. During our tests, two `llama-server` instances running Qwen GGUF models were using ~76 GB of unified memory and caused vLLM to OOM/hang the system. We disabled the systemd units to prevent automatic restart:
 
@@ -139,7 +146,7 @@ systemctl --user enable --now qwen27-local.service qwen35-local.service
 
 ## Recommended models for Hermes / OpenClaw
 
-Based on throughput, memory headroom and tool-calling support:
+Based on throughput, memory headroom and tool-calling support on DGX Spark and equivalent 96–128 GB edge AI hardware:
 
 1. **Default production agent** → **Qwen 3.6 35B-A3B** (`RedHatAI/Qwen3.6-35B-A3B-NVFP4`) on vLLM.
    - ~42 tok/s, ~22 GB memory, excellent tool-calling, image/video support.
@@ -155,7 +162,7 @@ Based on throughput, memory headroom and tool-calling support:
 ## Next steps
 
 - Run `tool-eval-bench` on our fastest recipes to measure agentic quality, not just speed.
-- Test Qwen 3.6 35B A3B Q8_K_XL (GGUF) and Qwopus 3.6 27B Coder MTP from the MiaAI ranking.
+- Test Qwen 3.6 35B A3B Q8_K_XL (GGUF) and Qwopus 3.6 27B Coder MTP from the MiaAI ranking on DGX Spark.
 - Fix audio decoding for Nemotron-3 Nano Omni.
 - Add LiteLLM proxy recipes to expose multiple models on different ports.
 

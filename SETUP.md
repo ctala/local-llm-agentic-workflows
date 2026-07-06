@@ -1,379 +1,224 @@
-# Registro de optimización de LLMs en DGX Spark
+# Setup Log: Running Local LLMs on DGX Spark & 96–128 GB Edge AI Workstations
 
-> Para una guía rápida de uso, véase [`README.md`](./README.md). Este documento es el log detallado de trabajo.
+> For the quick start guide see [`README.md`](./README.md). For the original Spanish log see [`SETUP.es.md`](./SETUP.es.md).
 
-## Objetivo
-Encontrar la mejor forma de ejecutar modelos locales optimizados para el **NVIDIA DGX Spark** (GB10 Grace Blackwell, ARM64/aarch64, 128 GB memoria unificada, CUDA 13.0, sm_121), enfocado en uso con agentes (Hermes/OpenClaw/n8n/Open WebUI).
+This document is a detailed work log of the attempts, errors and fixes encountered while optimizing **Gemma 4**, **Qwen 3.6** and **NVIDIA Nemotron 3** for local agentic workflows on the NVIDIA DGX Spark and equivalent high-memory edge AI hardware.
 
-Modelos objetivo:
+---
+
+## Goal
+
+Find the best way to run large local LLMs on the **NVIDIA DGX Spark** (GB10 Grace Blackwell, ARM64/aarch64, 128 GB unified memory, CUDA 13.0, sm_121), focused on use with agents such as **Hermes**, **OpenClaw**, n8n and Open WebUI.
+
+Target models:
 - Google Gemma 4 31B IT (dense)
 - Google Gemma 4 26B-A4B IT (MoE)
 - Qwen 3.6 35B-A3B (MoE)
 - NVIDIA Nemotron-3 Nano 30B-A3B (MoE, BF16)
 - NVIDIA Nemotron-3 Super 120B-A12B (MoE, NVFP4)
+- NVIDIA Nemotron-3 Nano Omni 30B-A3B (multimodal, NVFP4)
 
 ---
 
-## 1. Estado del sistema analizado
+## Base system
 
-| Componente | Valor |
-|------------|-------|
+| Component | Value |
+|-----------|-------|
 | Hardware | NVIDIA DGX Spark (GB10 Grace Blackwell) |
 | CPU | 20 cores ARM64 (aarch64) |
 | GPU | NVIDIA GB10 (sm_121) |
-| Memoria | 128 GB LPDDR5x unificada (~121 GB usable) |
-| Driver NVIDIA | 580.142 |
+| Memory | 128 GB LPDDR5x unified (~121 GB usable) |
+| NVIDIA driver | 580.142 |
 | CUDA | 13.0 |
 | Docker | 29.2.1 |
 | NVIDIA Container Toolkit | 1.19.0 |
-| Disco | 3.7 TB, 2.7 TB libres |
+| Disk | 3.7 TB, 2.7 TB free |
 
-Modelos/contenedores previos corriendo:
-- Open WebUI, n8n, qdrant, searxng, browserless
-- NIMs: bigcode/starcoder2-7b, deepseek-coder-v2-lite-instruct, llama-3.1-8b-instruct
+Previously running services included Open WebUI, n8n, qdrant, searxng, browserless, several NIMs, and two `llama-server` instances with Qwen GGUF models.
 
 ---
 
-## 2. Lecciones clave sobre el DGX Spark
+## Key lessons about the DGX Spark
 
-1. **ARM64/aarch64 es crítico**: muchos contenedores x86_64 fallan con `exec format error`. Hay que verificar que las imágenes tengan manifest `arm64`.
-2. **GB10 (sm_121) no tiene compute FP4 nativo**: a diferencia de B200. Los pesos NVFP4 se ejecutan vía **Marlin** (`--moe-backend marlin`), que descomprime a BF16 en runtime. Esto limita la velocidad respecto a lo que se vería en B200.
-3. **Ollama/llama.cpp no exprimen el Spark**: usan backends genéricos sin kernels específicos de Blackwell ni NVFP4 nativo.
-4. **Para agentes, el modelo importa más que el framework**: Gemma 4 31B dense está limitado por ancho de banda (~6-7 tok/s en GB10). Gemma 4 26B-A4B MoE (~3.8B activos) es el candidato a 50 tok/s.
+1. **ARM64/aarch64 matters**: many x86_64 containers fail with `exec format error`. Always check for an `arm64` manifest.
+2. **GB10 (sm_121) has no native FP4 compute**: unlike B200. NVFP4 weights run through the **Marlin** backend (`--moe-backend marlin`), which decompresses FP4 → BF16 at runtime. This caps throughput.
+3. **Ollama/llama.cpp do not extract maximum performance** on Spark: they use generic backends without Blackwell-specific kernels or native NVFP4.
+4. **For agents, model architecture matters more than framework alone**: Gemma 4 31B dense is memory-bandwidth limited (~6–7 tok/s), while Gemma 4 26B-A4B MoE (~3.8B active params) reaches ~50 tok/s.
+5. **Background GPU services can hang the system**: two Qwen GGUF `llama-server` processes consumed ~76 GB of unified memory and caused vLLM to OOM/hang when loading Nemotron Super.
 
 ---
 
-## 3. Resultados de pruebas
+## Test results by model
 
-### 3.1 Gemma 4 26B-A4B NVFP4 con vLLM
+### Gemma 4 26B-A4B NVFP4 on vLLM
 
-**Modelos probados**:
+Models tested:
 - `nvidia/Gemma-4-26B-A4B-NVFP4` (~16.5 GB)
 - `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` community + `gemma4_patched.py`
 
-**Contenedores que funcionan**:
-- Modelo oficial: `vllm/vllm-openai:gemma4-0505-cu130` (vLLM 0.20.2rc1)
-- Community parcheado: `vllm/vllm-openai:gemma4-cu130`
+Working containers:
+- Official: `vllm/vllm-openai:gemma4-0505-cu130` (vLLM 0.20.2rc1)
+- Community patched: `vllm/vllm-openai:gemma4-cu130`
 
-| Configuración | Decode tok/s | TTFT caliente | Notas |
-|---------------|--------------|---------------|-------|
-| Oficial base (`gemma4-0505-cu130`) | ~30.1 | ~0.20s | Estable, tool calling activado |
-| Community + parche (`gemma4-cu130`) | **~49.5** | ~0.08s | Mejor opción para agentes |
-| Community, gpu_util 0.92, max-seqs 4, batched 8192 | ~49.3 | ~1.9s | Sin mejora real |
-| Community, gpu_util 0.90, batched 2048 | ~49.3 | ~2.4s | Sin mejora real |
-| n-gram speculative decoding | ~24.6 | ~2.5s | Empeoró (prompt no repetitivo) |
-| MTP (`google/gemma-4-26B-A4B-it-assistant`) | Error | - | `AssertionError` en shape del drafter con esta build |
+| Configuration | Decode tok/s | Hot TTFT | Notes |
+|---------------|--------------|----------|-------|
+| Official base (`gemma4-0505-cu130`) | ~30.1 | ~0.20 s | Stable, tool calling enabled |
+| Community + patch (`gemma4-cu130`) | **~49.5** | ~0.08 s | Best option for agents |
+| Community, gpu_util 0.92, max-seqs 4, batched 8192 | ~49.3 | ~1.9 s | No real improvement |
+| Community, gpu_util 0.90, batched 2048 | ~49.3 | ~2.4 s | No real improvement |
+| n-gram speculative decoding | ~24.6 | ~2.5 s | Worse on non-repetitive prompt |
+| MTP (`google/gemma-4-26B-A4B-it-assistant`) | Error | – | `AssertionError` on drafter shape |
 
-**Comando recomendado** (community + parche):
-```bash
-docker run -d --name gemma4-26b-a4b \
-  --gpus all --ipc host --network host --shm-size 64gb \
-  -v ~/vllm/gemma4-26b-a4b-nvfp4-community:/models/gemma4 \
-  -v ~/vllm/gemma4-26b-a4b-nvfp4-community/gemma4_patched.py:/usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/gemma4.py \
-  -e HF_HOME=/models \
-  vllm/vllm-openai:gemma4-cu130 \
-    --model /models/gemma4 \
-    --served-model-name gemma-4-26b-a4b \
-    --host 0.0.0.0 --port 8000 \
-    --quantization modelopt \
-    --moe-backend marlin \
-    --trust-remote-code \
-    --kv-cache-dtype fp8 \
-    --max-model-len 32768 \
-    --max-num-seqs 2 \
-    --max-num-batched-tokens 4096 \
-    --gpu-memory-utilization 0.90 \
-    --enable-prefix-caching \
-    --enable-auto-tool-choice \
-    --tool-call-parser pythonic
-```
+Issues:
+- Without `--max-num-batched-tokens 4096` it fails due to chunked multimodal input.
+- `vllm/vllm-openai:gemma4-cu130` does not load the official checkpoint: `KeyError: 'layers.0.experts.0.down_proj.input_scale'`.
+- `vllm/vllm-openai:gemma4-0505-cu130` loads the official checkpoint but is ~20 tok/s slower than the community patch.
 
-**Problemas encontrados**:
-- Sin `--max-num-batched-tokens 4096` falla por chunked multimodal input.
-- `vllm/vllm-openai:gemma4-cu130` no carga el modelo oficial: `KeyError: 'layers.0.experts.0.down_proj.input_scale'`.
-- `vllm/vllm-openai:gemma4-0505-cu130` carga el oficial pero es ~20 tok/s más lento que el community parcheado.
-- `nvcr.io/nvidia/vllm:26.04-py3` (vLLM 0.19.0) no reconoce arquitectura `gemma4`.
+### Gemma 4 31B IT (dense)
 
-### 3.2 Gemma 4 31B IT (dense)
+Model: `nvidia/Gemma-4-31B-IT-NVFP4` (~31 GB)  
+Container: `vllm/vllm-openai:gemma4-0505-cu130`
 
-**Modelo probado**: `nvidia/Gemma-4-31B-IT-NVFP4` (~31 GB)
-**Contenedor**: `vllm/vllm-openai:gemma4-0505-cu130`
+| Configuration | Decode tok/s | Hot TTFT | Notes |
+|---------------|--------------|----------|-------|
+| Base NVFP4 | **~6.7** | ~1.8 s | Memory-bandwidth limited |
 
-| Configuración | Decode tok/s | TTFT caliente | Notas |
-|---------------|--------------|---------------|-------|
-| Base NVFP4 | **~6.7** | ~1.8s | Limitado por ancho de banda de memoria |
+Not a candidate for 50 tok/s due to being dense and memory-bandwidth bound.
 
-**Nota**: no es candidato a 50 tok/s por ser denso y limitado por ancho de banda de memoria.
+### Qwen 3.6 35B-A3B
 
-### 3.3 Qwen 3.6 35B-A3B
+Models tested:
+- `nvidia/Qwen3.6-35B-A3B-NVFP4` → failed with `KeyError: 'layers.0.mlp.experts.w2_input_scale'`.
+- `RedHatAI/Qwen3.6-35B-A3B-NVFP4` → **works**.
 
-**Modelos probados**:
-- `nvidia/Qwen3.6-35B-A3B-NVFP4` → falló con `KeyError: 'layers.0.mlp.experts.w2_input_scale'`.
-- `RedHatAI/Qwen3.6-35B-A3B-NVFP4` → **funciona**.
+Container: `vllm/vllm-openai:gemma4-0505-cu130`
 
-**Contenedor**: `vllm/vllm-openai:gemma4-0505-cu130`
+| Configuration | Decode tok/s | Hot TTFT | Notes |
+|---------------|--------------|----------|-------|
+| Base (`compressed-tensors` + `marlin`) | **~42.2** | ~0.10 s | Very stable, tool calling enabled |
+| max-seqs 4, batched 8192, gpu_util 0.92 | ~42.2 | ~1.4 s | No real improvement |
+| n-gram speculative (`num_spec_tokens=5`) | ~34–37 | ~0.10 s | Worse for non-repetitive text |
+| MTP (`qwen3_5_mtp`) | Error | – | Non-quantized drafter does not support `moe_backend='marlin'` |
+| TRT-LLM 1.3.0rc13 (custom MLP-only NVFP4) | **~34.4** | ~0.09 s | Quantized from BF16 with Model Optimizer 0.44.0 |
 
-| Configuración | Decode tok/s | TTFT caliente | Notas |
-|---------------|--------------|---------------|-------|
-| Base (`compressed-tensors` + `marlin`) | **~42.2** | ~0.10s | Muy estable, tool calling activado |
-| max-seqs 4, batched 8192, gpu_util 0.92 | ~42.2 | ~1.4s | Sin mejora real |
-| n-gram speculative (`num_spec_tokens=5`) | ~34–37 | ~0.10s | Empeora para texto no repetitivo |
-| MTP (`qwen3_5_mtp`) | Error | - | Drafter no cuantizado no soporta `moe_backend='marlin'` |
-| TRT-LLM 1.3.0rc13 (MLP-only NVFP4 propio) | **~34.4** | ~0.09s | Cuantizado con Model Optimizer 0.44.0 desde BF16. Ver sección 4. |
+### NVIDIA Nemotron 3
 
-**Comando recomendado**:
-```bash
-docker run -d --name qwen36-35b-a3b \
-  --gpus all --ipc host --network host --shm-size 64gb \
-  -v ~/vllm/qwen3.6-35b-a3b-nvfp4-redhat:/models/qwen3.6 \
-  -e HF_HOME=/models \
-  vllm/vllm-openai:gemma4-0505-cu130 \
-    --model /models/qwen3.6 \
-    --served-model-name qwen3.6-35b-a3b \
-    --host 0.0.0.0 --port 8000 \
-    --quantization compressed-tensors \
-    --moe-backend marlin \
-    --kv-cache-dtype fp8 \
-    --max-model-len 32768 \
-    --max-num-seqs 2 \
-    --max-num-batched-tokens 4096 \
-    --gpu-memory-utilization 0.90 \
-    --enable-prefix-caching \
-    --enable-auto-tool-choice \
-    --tool-call-parser pythonic
-```
-
-### 3.4 NVIDIA Nemotron 3
-
-**Modelos probados**:
+Models tested:
 - `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` (~89 GB)
 - `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4` (~75 GB)
 
 #### TensorRT-LLM 1.3.0rc13
 
-**Contenedor**: `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13`
-
-| Configuración | Decode tok/s | TTFT caliente | Memoria pico | Notas |
-|---------------|--------------|---------------|--------------|-------|
-| Nano-30B-A3B BF16 | **~28.8** | ~0.22 s | **~118 GB** | Carga directa; casi llena el pool unificado. |
-| Super-120B-A12B NVFP4 | **~14.7** | ~0.29 s | **~110 GB** | Checkpoint NVFP4 oficial; más lento por más expertos activos. |
+| Configuration | Decode tok/s | Hot TTFT | Peak memory | Notes |
+|---------------|--------------|----------|-------------|-------|
+| Nano-30B-A3B BF16 | **~28.8** | ~0.22 s | **~118 GB** | Direct load; almost fills unified pool |
+| Super-120B-A12B NVFP4 | **~14.7** | ~0.29 s | **~110 GB** | Official NVFP4; slower due to more active experts |
 
 #### vLLM `gemma4-0505-cu130`
 
-**Contenedor**: `vllm/vllm-openai:gemma4-0505-cu130`
+| Configuration | Decode tok/s | Hot TTFT | Peak memory | Notes |
+|---------------|--------------|----------|-------------|-------|
+| Nano-30B-A3B BF16 | ~28.3 | ~0.20 s | ~72 GB | Works; stop other large GPU services first |
+| Super-120B-A12B NVFP4 | — | — | — | **Not viable**: `CUDA OOM` on engine init; Spark hung on first attempt |
 
-| Configuración | Decode tok/s | TTFT caliente | Memoria pico | Notas |
-|---------------|--------------|---------------|--------------|-------|
-| Nano-30B-A3B BF16 | ~28.3 | ~0.20 s | ~72 GB | Funciona; requiere detener otros servicios grandes. |
-| Super-120B-A12B NVFP4 | — | — | — | **No viable**: `CUDA OOM` al inicializar engine; colgó el Spark en el primer intento. |
+See `RESULTS.md` for the detailed analysis of why Nemotron Super fails on vLLM.
 
-**Comando recomendado (Nano)**:
-```bash
-docker run -d --name nemotron3-nano-30b-a3b-trtllm \
-  --gpus all --ipc host --network host --shm-size 64gb \
-  -v ~/vllm/nemotron3-nano-30b-a3b-bf16:/models/nemotron \
-  -e HF_HOME=/models \
-  nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13 \
-    trtllm-serve /models/nemotron --host 0.0.0.0 --port 8000 \
-    --backend pytorch --max_seq_len 8192 --max_batch_size 1 --kv_cache_dtype fp8
-```
+### NVIDIA Nemotron 3 Nano Omni (multimodal)
 
-**Comando recomendado (Super)**:
-```bash
-docker run -d --name nemotron3-super-120b-a12b-trtllm \
-  --gpus all --ipc host --network host --shm-size 64gb \
-  -v ~/vllm/nemotron3-super-120b-a12b-nvfp4:/models/nemotron \
-  -e HF_HOME=/models \
-  nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13 \
-    trtllm-serve /models/nemotron --host 0.0.0.0 --port 8000 \
-    --backend pytorch --max_seq_len 8192 --max_batch_size 1 --kv_cache_dtype fp8
-```
+Model: `nvidia/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` (~21 GB)  
+Container: `vllm/vllm-openai:gemma4-0505-cu130`
 
-**Comando alternativo (Nano con vLLM)**:
-```bash
-docker run -d --name nemotron3-nano-30b-a3b-vllm \
-  --gpus all --ipc host --network host --shm-size 64gb \
-  -v ~/vllm/nemotron3-nano-30b-a3b-bf16:/models/nemotron \
-  -e HF_HOME=/models \
-  vllm/vllm-openai:gemma4-0505-cu130 \
-    --model /models/nemotron --served-model-name nemotron3-nano-30b-a3b \
-    --host 0.0.0.0 --port 8000 --kv-cache-dtype fp8 \
-    --max-model-len 8192 --max-num-seqs 1 --max-num-batched-tokens 4096 \
-    --gpu-memory-utilization 0.90 --trust-remote-code
-```
+| Configuration | Decode tok/s | Hot TTFT | Peak memory | Multimodal | Notes |
+|---------------|--------------|----------|-------------|------------|-------|
+| vLLM, `modelopt_fp4`, `marlin` | **~40.0** | ~0.10 s | **~40 GB** | Image ✅ | Fast text; image answers correctly |
+| Audio via OpenAI `input_audio` | – | – | – | Audio ❌ | Failed with `Invalid or unsupported audio file` in container decoding |
 
-#### Intento fallido: Nemotron-3 Super 120B-A12B con vLLM
-
-Se intentó servir `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4` con `vllm/vllm-openai:gemma4-0505-cu130`.
-
-**Primer intento**: el contenedor cargó los 17 shards (~75 GB en disco) en ~489 s. Los últimos logs antes del colgado:
-```
-Loading weights took 489.67 seconds
-WARNING ... Your GPU does not have native support for FP4 computation ...
-Using MoEPrepareAndFinalizeNoDPEPModular
-Using uncalibrated q_scale 1.0 ...
-```
-El Spark se colgó. Causa raíz: dos servidores `llama-server` (Qwen3.6-27B-Q8_0 y Qwen3.6-35B-A3B-Q8_0) ocupaban ~76 GB de VRAM, dejando insuficiente memoria para vLLM.
-
-**Segundo intento** (tras reinicio y liberar memoria): vLLM falló inmediatamente con:
-```
-torch.AcceleratorError: CUDA error: out of memory
-  File ".../vllm/utils/mem_utils.py", line 108, in measure
-    self.free_memory, self.total_memory = current_platform.mem_get_info(device)
-```
-Incluso con ~117 GB libres en el host, vLLM no pudo inicializar el `EngineCore`.
-
-**Diagnóstico**: el modelo `NemotronHForCausalLM` tiene 88 capas, 512 expertos enrutados, 22 expertos por token, 1 experto compartido, hidden size 4096. El overhead de descompresión FP4 vía Marlin, la reserva de KV cache por `--gpu-memory-utilization 0.90` y la compilación de kernels del V1 engine exceden el margen de 128 GB unificados. TensorRT-LLM, en cambio, usa un presupuesto de memoria fijo (`--max_seq_len 8192 --max_batch_size 1`) que resulta estable.
-
-**Conclusión**: Nemotron-3 Super 120B-A12B **solo es viable con TensorRT-LLM** en GB10.
-
-### 3.5 NVIDIA Nemotron 3 Nano Omni (multimodal)
-
-**Modelo probado**:
-- `nvidia/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` (~21 GB)
-
-**Contenedor**: `vllm/vllm-openai:gemma4-0505-cu130`
-
-| Configuración | Decode tok/s | TTFT caliente | Memoria pico | Multimodal | Notas |
-|---------------|--------------|---------------|--------------|------------|-------|
-| vLLM, `--quantization modelopt_fp4`, `--moe-backend marlin` | **~40.0** | ~0.10 s | **~40 GB** | Imagen ✅ | Texto rápido; imagen responde correctamente. |
-| Audio (vía OpenAI `input_audio`) | – | – | – | Audio ❌ | Falló con `Invalid or unsupported audio file` en la decodificación del contenedor. |
-
-**TRT-LLM 1.3.0rc13** también fue probado, pero falló al parsear mensajes multimodales:
-> `AttributeError: 'NoneType' object has no attribute 'model_type'` en `parse_chat_messages_coroutines`.
-
-**Comando recomendado**:
-```bash
-docker run -d --name nemotron3-nano-omni-vllm \
-  --gpus all --ipc host --network host --shm-size 64gb \
-  -v ~/vllm/nemotron3-nano-omni-30b-a3b-reasoning-nvfp4:/models/nemotron \
-  -e HF_HOME=/models \
-  vllm/vllm-openai:gemma4-0505-cu130 \
-    --model /models/nemotron \
-    --served-model-name nemotron3-nano-omni \
-    --host 0.0.0.0 --port 8000 \
-    --quantization modelopt_fp4 \
-    --moe-backend marlin \
-    --kv-cache-dtype fp8 \
-    --max-model-len 8192 \
-    --max-num-seqs 1 \
-    --max-num-batched-tokens 4096 \
-    --gpu-memory-utilization 0.90 \
-    --trust-remote-code
-```
-
-**Prueba de imagen**:
-```bash
-python3 benchmarks/test_multimodal.py nemotron3-nano-omni image /ruta/a/imagen.png
-```
+TRT-LLM 1.3.0rc13 was also tested but failed to parse multimodal messages:
+> `AttributeError: 'NoneType' object has no attribute 'model_type'` in `parse_chat_messages_coroutines`.
 
 ---
 
-## 4. Intento con TensorRT-LLM oficial de NVIDIA
+## Official TensorRT-LLM attempts
 
-Objetivo: validar si los modelos oficiales de NVIDIA corren mejor con los contenedores TensorRT-LLM diseñados para DGX Spark.
+We tested NVIDIA's official TensorRT-LLM containers for Spark:
 
-### Contenedores probados
+| Container | TRT-LLM | Gemma 4 26B | Qwen 3.6 35B | Nemotron Nano | Nemotron Super |
+|-----------|---------|-------------|--------------|---------------|----------------|
+| `nvcr.io/nvidia/tensorrt-llm/release:spark-single-gpu-dev` | 1.1.0rc3 | No `gemma4` support | Argument/quant error | – | – |
+| `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc10` | 1.3.0rc10 | No `gemma4` support | `AssertionError` quant_algo | – | – |
+| `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | 1.3.0rc13 | No `gemma4` support | `AssertionError` quant_algo (pre-quantized), OK custom MLP-only | **OK** BF16 | **OK** NVFP4 | Omni: multimodal parse error |
 
-| Contenedor | TRT-LLM | Gemma 4 26B-A4B oficial | Qwen 3.6 35B-A3B oficial | Nemotron 3 Nano | Nemotron 3 Super |
-|------------|---------|-------------------------|--------------------------|-----------------|------------------|
-| `nvcr.io/nvidia/tensorrt-llm/release:spark-single-gpu-dev` | 1.1.0rc3 | No soporta `gemma4` | Error de opción/quantização | – | – |
-| `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc10` | 1.3.0rc10 | No soporta `gemma4` | `AssertionError` quant_algo | – | – |
-| `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | 1.3.0rc13 | No soporta `gemma4` | `AssertionError` quant_algo (pre-cuantizado), OK MLP-only propio | **OK** BF16 | **OK** NVFP4 | Omni: error parse multimodal |
+### Key errors
 
-### Errores clave
+- **Gemma 4**: `ValueError: model type 'gemma4' but Transformers does not recognize this architecture`. The bundled `transformers` (4.55–4.57) lacks Gemma 4 support.
+- **Qwen 3.6 35B-A3B NVFP4 (NVIDIA)**: `AssertionError` in `QuantMode.from_quant_algo`; the TRT-LLM PyTorch backend does not recognize the `modelopt` NVFP4 algorithm of NVIDIA's pre-quantized checkpoint.
 
-- **Gemma 4**: `ValueError: model type 'gemma4' but Transformers does not recognize this architecture`. El `transformers` empaquetado en los contenedores no incluye Gemma 4.
-- **Qwen 3.6 35B-A3B NVFP4**: `AssertionError` en `QuantMode.from_quant_algo` al cargar el checkpoint `modelopt` NVFP4 de NVIDIA. El backend PyTorch de TRT-LLM no reconoce ese esquema de cuantización directamente.
+### Custom Qwen 3.6 quantization
 
-### Cuantización propia con TensorRT Model Optimizer
+We followed NVIDIA's flow starting from the BF16 base `Qwen/Qwen3.6-35B-A3B` (~70 GB) using **TensorRT Model Optimizer 0.44.0**:
 
-Se intentó el flujo oficial para Qwen 3.6 desde el modelo base BF16 (`Qwen/Qwen3.6-35B-A3B`) usando **nvidia-modelopt 0.44.0** (los ejemplos de 0.35.0 no son compatibles con PyTorch 2.12 disponible en el sistema).
+1. Download BF16 base.
+2. Convert VLM checkpoint to text-only (`qwen3_5_moe_text`) because Model Optimizer cannot load `Qwen3_5MoeForConditionalGeneration` directly.
+3. Patch `modelopt` quantizers to support per-expert quantization of Qwen3.5/3.6.
+4. Patch `example_utils.py` to use **total** GPU memory instead of free memory reported by `accelerate` (required for the GB10 unified pool).
+5. Quantize with `--qformat nvfp4` and `--qformat nvfp4_mlp_only`.
 
-Pasos ejecutados:
-1. Descargar `Qwen/Qwen3.6-35B-A3B` BF16 (~70 GB).
-2. Convertir el checkpoint VLM a text-only (`qwen3_5_moe_text`) porque Model Optimizer no carga `Qwen3_5MoeForConditionalGeneration` directamente.
-3. Parchear `modelopt.torch.quantization.plugins.huggingface._QuantFusedExperts.iter_weights_for_calibration` para soportar quantizers por experto de Qwen3.5/3.6.
-4. Parchear `example_utils.py` para usar la memoria **total** de la GPU en lugar de la libre reportada por `accelerate` (necesario en memoria unificada del GB10).
-5. Cuantizar con `--qformat nvfp4` y `--qformat nvfp4_mlp_only`.
+| Quant config | Size | Result on TRT-LLM 1.3.0rc13 |
+|--------------|------|------------------------------|
+| Full NVFP4 | ~20 GB | `NotImplementedError`: split linear-attention packing does not support quantized linear-attention `input_scale`/`weight_scale` tensors. |
+| **MLP-only NVFP4** | ~22 GB | **Serves correctly** with `trtllm-serve --backend pytorch`. |
 
-Resultados:
-
-| Quant config | Tamaño | Error/success al servir con TRT-LLM 1.3.0rc13 |
-|--------------|--------|-----------------------------------------------|
-| Full NVFP4 | ~20 GB | `NotImplementedError`: split linear-attention packing no soporta `input_scale`/`weight_scale` de atención lineal cuantizada. |
-| **MLP-only NVFP4** | ~22 GB | **Sirve correctamente** con `trtllm-serve --backend pytorch`. |
-
-Benchmark TRT-LLM MLP-only:
-- **Decode tok/s**: ~34.4 (max_tokens=1024)
-- **TTFT caliente**: ~0.09 s
-- **Memoria usada**: ~41 GB del pool unificado
-
-### Conclusión del intento
-
-Los blueprints oficiales de Spark funcionan con modelos como `nvidia/Llama-3.1-8B-Instruct-FP4`, `openai/gpt-oss-*` y `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16`, pero **no out-of-the-box** con `nvidia/Gemma-4-26B-A4B-NVFP4` ni `nvidia/Qwen3.6-35B-A3B-NVFP4`.
-
-Para TensorRT-LLM con Qwen 3.6 hay un camino funcional hoy:
-- Cuantizar el modelo base BF16 con Model Optimizer usando `--qformat nvfp4_mlp_only`.
-- Servir con `trtllm-serve --backend pytorch --kv_cache_dtype fp8`.
-
-El formato **full NVFP4** aún no es compatible con TRT-LLM 1.3.0rc13 por la atención lineal de Qwen3.5/3.6. Para Gemma 4, seguir esperando soporte nativo de `gemma4` en TRT-LLM.
-
-**vLLM sigue siendo la opción más rápida y sencilla** para los checkpoints pre-cuantizados; **TRT-LLM es viable para Qwen 3.6 con cuantización MLP-only manual**.
+Benchmark: ~34.4 decode tok/s, hot TTFT ~0.09 s, ~41 GB unified memory.
 
 ---
 
-## 5. Configuraciones finales recomendadas
+## Final recommended configurations
 
-| Modelo | Checkpoint | Contenedor | Decode tok/s | Uso recomendado |
-|--------|------------|------------|--------------|-----------------|
-| **Gemma 4 26B-A4B** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + parche | `vllm/vllm-openai:gemma4-cu130` | **~49.5** | Máxima velocidad para agentes |
-| **Qwen 3.6 35B-A3B** | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~42.2** | Mejor calidad-velocidad |
-| **Gemma 4 31B** | `nvidia/Gemma-4-31B-IT-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~6.7** | Solo si se necesita el denso |
-| **Qwen 3.6 35B-A3B** | Cuantiizado propio MLP-only NVFP4 | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~34.4** | Alternativa TRT-LLM; más lenta que vLLM RedHatAI pero usa stack oficial |
-| **Nemotron-3-Nano-30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~28.8** | Modelo denso BF16 de NVIDIA; usa casi toda la memoria |
-| Nemotron-3-Nano-30B-A3B | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | `vllm/vllm-openai:gemma4-0505-cu130` | ~28.3 | Alternativa vLLM; requiere liberar VRAM de otros servicios |
-| **Nemotron-3-Super-120B-A12B** | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4` | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~14.7** | Modelo grande NVFP4; prioriza calidad sobre velocidad. **No usar con vLLM** |
-| **Nemotron-3-Nano-Omni-30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~40.0** | **Mejor opción multimodal**: texto + imagen funcionan; audio pendiente |
-
----
-
-## 6. Notas técnicas
-
-- **HF_TOKEN requerido** para descargar modelos Gemma/Qwen de HuggingFace.
-- **Memoria**: el modelo Gemma 4 26B-A4B NVFP4 ocupa ~18 GB en memoria al cargar; KV cache FP8 deja ~82 GB disponibles.
-- **Marlin backend**: obligatorio en GB10 para MoE NVFP4. Backends nativos FP4 (CUTLASS/FlashInfer) pueden fallar o dar NaN en sm_121.
-- **Tool calling**: `--enable-auto-tool-choice --tool-call-parser pythonic` funciona para formato Hermes-style. Gemma 4 también tiene parser nativo `gemma4` por probar.
-- **TRT-LLM con Nemotron 3**: los checkpoints oficiales cargan directamente con `trtllm-serve --backend pytorch --kv_cache_dtype fp8`. El Nano BF16 usa ~118 GB del pool unificado; el Super NVFP4 ~110 GB.
-- **vLLM con Nemotron 3**: el Nano BF16 y el Omni NVFP4 funcionan con `vllm/vllm-openai:gemma4-0505-cu130`. El Super 120B-A12B no es viable: el V1 engine reserva memoria agresivamente y provoca `CUDA OOM` o colgado del sistema cuando hay otros consumidores de VRAM.
-- **Servicios en segundo plano**: antes de lanzar modelos grandes, verifica que no haya `llama-server`, contenedores u otros procesos ocupando memoria GPU. En este trabajo, dos servidores Qwen GGUF en llama.cpp usaban ~76 GB y causaban OOM al iniciar vLLM.
+| Model | Checkpoint | Container | Decode tok/s | Recommended use |
+|-------|------------|-----------|--------------|-----------------|
+| **Gemma 4 26B-A4B** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + patch | `vllm/vllm-openai:gemma4-cu130` | **~49.5** | Maximum speed for agents |
+| **Qwen 3.6 35B-A3B** | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~42.2** | Best quality/speed balance |
+| **Gemma 4 31B** | `nvidia/Gemma-4-31B-IT-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~6.7** | Only if dense model is needed |
+| **Qwen 3.6 35B-A3B** | Custom MLP-only NVFP4 | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~34.4** | Official NVIDIA stack alternative |
+| **Nemotron-3-Nano-30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~28.8** | Official NVIDIA dense model; uses almost all memory |
+| **Nemotron-3-Super-120B-A12B** | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4` | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~14.7** | Large official model; quality-first |
+| **Nemotron-3-Nano-Omni-30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~40.0** | Best official multimodal: text + image |
 
 ---
 
-## 7. Archivos entregables
+## Technical notes
 
-- `README.md`: resumen ejecutivo y guía rápida.
-- `resultados-gemma4-spark.md`: tabla resumen y conclusiones.
-- `registro-gemma4-spark.md`: este log detallado.
-- `scripts/run-gemma4-26b-a4b.sh`: script para lanzar Gemma 4 26B-A4B community.
-- `scripts/run-qwen36-35b-a3b.sh`: script para lanzar Qwen 3.6 35B-A3B con vLLM.
-- `scripts/run-qwen36-35b-a3b-trtllm.sh`: script para lanzar Qwen 3.6 35B-A3B con TensorRT-LLM (checkpoint MLP-only).
-- `scripts/run-gemma4-31b.sh`: script para lanzar Gemma 4 31B.
-- `scripts/run-nemotron3-nano-30b-a3b-trtllm.sh`: script para lanzar Nemotron-3-Nano con TRT-LLM.
-- `scripts/run-nemotron3-nano-30b-a3b-vllm.sh`: script para lanzar Nemotron-3-Nano con vLLM.
-- `scripts/run-nemotron3-super-120b-a12b-trtllm.sh`: script para lanzar Nemotron-3-Super con TRT-LLM.
-- `scripts/run-nemotron3-nano-omni-vllm.sh`: script para lanzar Nemotron-3-Nano-Omni multimodal con vLLM.
-- `benchmarks/bench_model.py`: script de benchmark reproducible.
-- `benchmarks/test_multimodal.py`: script para probar imagen/audio con modelos multimodales.
-- `scripts/quantize-qwen36-nvfp4.sh`: script para cuantizar Qwen 3.6 BF16 a NVFP4 MLP-only con Model Optimizer.
-- `scripts/convert-qwen36-vlm-to-text.py`: helper que extrae la parte text-only del checkpoint VLM de Qwen 3.6.
+- **HF_TOKEN required** to download Gemma/Qwen checkpoints from HuggingFace.
+- **Memory**: Gemma 4 26B-A4B NVFP4 uses ~18 GB at load; FP8 KV cache leaves ~82 GB available.
+- **Marlin backend** is mandatory on GB10 for MoE NVFP4. Native FP4 backends may fail or produce NaN on sm_121.
+- **Tool calling**: `--enable-auto-tool-choice --tool-call-parser pythonic` works for Hermes-style formats.
+- **TRT-LLM with Nemotron 3**: official checkpoints load directly with `trtllm-serve --backend pytorch --kv_cache_dtype fp8`.
+- **vLLM with Nemotron 3**: Nano BF16 and Omni NVFP4 work. Super 120B-A12B does not due to aggressive memory reservation in the V1 engine.
+- **Background services**: stop `llama-server` and other GPU consumers before launching large models.
 
-## 8. Próximos pasos opcionales
+---
 
-1. Investigar MTP para Qwen 3.6 con un contenedor más reciente o configurando `moe_backend` diferente para el drafter.
-2. Probar `--tool-call-parser gemma4` en Gemma 4 para tool calling nativo.
-3. Evaluar calidad de los modelos en tareas de agentes (Hermes/OpenClaw).
-4. Configurar LiteLLM como proxy para exponer múltiples modelos en puertos distintos.
-5. Probar full NVFP4 de Qwen 3.6 en TRT-LLM cuando se soporen los scales de atención lineal, o con una versión más reciente de Model Optimizer/TRT-LLM.
-6. Evaluar calidad del Qwen 3.6 MLP-only NVFP4 propio vs RedHatAI compressed-tensors.
-7. Probar GPT-OSS con TRT-LLM según el roadmap del usuario.
+## Deliverables in this repository
+
+- `README.md`: executive summary and quick-start guide.
+- `RESULTS.md`: full benchmark tables and technical analysis.
+- `SETUP.md`: this detailed work log.
+- `RESULTS.es.md` / `SETUP.es.md`: Spanish versions of the above.
+- `scripts/run-*.sh`: Docker launch recipes.
+- `scripts/quantize-qwen36-nvfp4.sh`: Qwen 3.6 BF16 → NVFP4 MLP-only quantization helper.
+- `scripts/convert-qwen36-vlm-to-text.py`: extracts the text-only part of the Qwen 3.6 VLM checkpoint.
+- `benchmarks/bench_model.py`: reproducible text benchmark.
+- `benchmarks/test_multimodal.py`: image/audio tests for multimodal models.
+
+---
+
+## Next steps
+
+1. Investigate MTP for Qwen 3.6 with a newer container or a compatible drafter configuration.
+2. Test `--tool-call-parser gemma4` for native Gemma 4 tool calling.
+3. Evaluate agentic quality with `tool-eval-bench` for Hermes/OpenClaw.
+4. Set up LiteLLM as a proxy to expose multiple models on different ports.
+5. Test full NVFP4 Qwen 3.6 on TRT-LLM when linear-attention scales are supported.
+6. Compare Qwen 3.6 custom MLP-only NVFP4 quality against RedHatAI `compressed-tensors`.
+7. Test GPT-OSS with TRT-LLM.
+8. Try Qwen 3.6 35B A3B Q8_K_XL (GGUF) and Qwopus 3.6 27B Coder MTP from the MiaAI agentic ranking.
