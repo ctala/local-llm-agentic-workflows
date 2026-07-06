@@ -15,7 +15,7 @@ Use cases covered include chatbots, coding assistants, agentic workflows with **
 For local LLM deployment on DGX Spark or equivalent 96–128 GB edge hardware, start here:
 
 | Priority | Model | Framework | Decode tok/s | Memory | Tool calling | Multimodal | Max context tested |
-|----------|-------|-----------|--------------|--------|--------------|------------|
+|----------|-------|-----------|--------------|--------|--------------|------------|--------------------|
 | **Speed** | Gemma 4 26B-A4B IT (community patch) | vLLM | **~49.5** | ~22 GB | ✅ | ✅ image/video | 128K |
 | **Quality/speed balance** | Qwen 3.6 35B-A3B | vLLM | **~42.2** | ~22 GB | ✅ | ✅ image/video | **262K** |
 | **Official NVIDIA multimodal** | Nemotron-3 Nano Omni 30B-A3B | vLLM | **~40.0** | ~40 GB | ✅ | ✅ image | 128K |
@@ -99,7 +99,7 @@ The recipes were tested on the **NVIDIA DGX Spark** and should work on any ARM64
 Benchmarks use a ~120-token prompt, `max_tokens=512`, temperature 0.7 and streaming, reporting decode tok/s and hot TTFT.
 
 | Model | Checkpoint | Framework | Decode tok/s | Memory | Tool calling | Multimodal | Max context | Recommendation |
-|-------|------------|-----------|--------------|--------|--------------|------------|----------------|
+|-------|------------|-----------|--------------|--------|--------------|------------|-------------|----------------|
 | **Gemma 4 26B-A4B** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + patch | vLLM | **~49.5** | ~22 GB | ✅ | ✅ image/video | 128K | **Fastest local LLM for text agents** |
 | **Qwen 3.6 35B-A3B** | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | vLLM | **~42.2** | ~22 GB | ✅ | ✅ image/video | **262K** | **Best quality/speed trade-off; longest context** |
 | Qwen 3.6 35B-A3B | Custom MLP-only NVFP4 | TRT-LLM | ~34.4 | ~41 GB | ✅ | ❌ text only | 32K | Official NVIDIA stack |
@@ -160,6 +160,84 @@ Based on throughput, memory headroom and tool-calling support on DGX Spark and e
    - ~34.4 tok/s, ~41 GB memory. Requires manual quantization from BF16.
 6. **Quality over speed** → **Nemotron-3 Super 120B-A12B** on TensorRT-LLM.
    - ~14.7 tok/s, ~110 GB memory. Use only with TRT-LLM; vLLM is unstable on GB10.
+
+---
+
+## Parallel long-context sessions with Qwen 3.6 35B-A3B
+
+Agentic frameworks such as **Hermes** and **OpenClaw** can run multiple conversations or subagents at the same time. We validated how many parallel long-context sessions the DGX Spark can sustain with `Qwen3.6-35B-A3B-NVFP4` served by vLLM.
+
+### Configuration
+
+Use the extreme-context recipe in `scripts/run-qwen36-35b-a3b-extreme-context-3seq.sh`:
+
+```bash
+--max-model-len 262144 \
+--max-num-seqs 3 \
+--max-num-batched-tokens 32768 \
+--kv-cache-dtype fp8 \
+--gpu-memory-utilization 0.95
+```
+
+`--max-num-seqs 4` loads, but it leaves only ~1 GB of free unified memory and makes the Spark vulnerable to hangs. **3 concurrent sequences is the stable production limit**.
+
+### Verified concurrency
+
+| Context per session | Sessions | Wall time | Notes |
+|---------------------|----------|-----------|-------|
+| 50K tokens | 3 | ~4.3 s | Sub-second TTFT, very responsive. |
+| 100K tokens | 3 | ~4.6 s | Still sub-second TTFT for most sessions. |
+| 200K tokens | 3 | ~4.9 s | Chunked prefill keeps total time low. |
+| **262K tokens** | **3** | **~92 s** | **Works**, but TTFT rises to ~40–90 s because 786K total tokens must be prefilled. |
+
+### Practical guidance
+
+- **Typical agent turn**: OpenClaw / Hermes-style agents use **8K–32K tokens** of active context per session.
+- **Comfortable production default**: **3 sessions × 64K context** runs with sub-second TTFT and leaves memory headroom.
+- **Maximum per session**: **~262K tokens** is achievable with 3 concurrent sessions; reserve it for occasional long-context tasks, not as the steady-state default.
+- **Memory at rest after loading**: ~119 GB used / ~121 GB total. Keep other GPU/VRAM consumers stopped.
+
+See [`RESULTS.md`](RESULTS.md) for the full context-scaling tables.
+
+---
+
+## Connecting to agent frameworks (Hermes / OpenClaw)
+
+All vLLM and TensorRT-LLM recipes expose an **OpenAI-compatible API** on `http://localhost:8000/v1`. You can point any agent framework that supports custom OpenAI endpoints directly at it.
+
+### Hermes
+
+Add a provider block to `~/.hermes/config.yaml`:
+
+```yaml
+providers:
+  local-qwen-35b-vllm-262k:
+    base_url: http://localhost:8000/v1
+    name: Spark Qwen 35B-A3B (vLLM 262K)
+    api_key: local-no-key-needed
+    model: qwen3.6-35b-a3b
+    context_length: 262144
+```
+
+Then run:
+
+```bash
+hermes chat --provider local-qwen-35b-vllm-262k -m qwen3.6-35b-a3b
+```
+
+If you are migrating from OpenClaw, use:
+
+```bash
+hermes claw migrate
+```
+
+### OpenClaw
+
+OpenClaw uses the same `providers:` shape. Add a custom provider pointing to `http://localhost:8000/v1` with model `qwen3.6-35b-a3b` and context length `262144`.
+
+### n8n / Open WebUI
+
+Use the base URL `http://localhost:8000/v1` and any non-empty API key (vLLM does not validate keys by default).
 
 ---
 
