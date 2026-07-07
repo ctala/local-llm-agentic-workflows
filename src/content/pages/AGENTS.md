@@ -36,39 +36,43 @@ The LiteLLM proxy binds to `0.0.0.0:4000` and exposes all configured backends un
 
 Hermes supports custom OpenAI-compatible endpoints. The cleanest setup for the Spark is to use **one provider that points to the LiteLLM proxy**; LiteLLM then exposes whichever model is currently loaded (Qwen, Gemma, Nemotron, etc.) under a single URL.
 
+> **Important:** LiteLLM's `/v1/models` endpoint does not report `max_tokens`/`context_length` for custom OpenAI-compatible backends. If you do not set `model.context_length` (and the per-model `context_length` below), Hermes falls back to its built-in family defaults and shows **131,072 tokens** instead of the real **262,144**.
+
 Add this to `~/.hermes/config.yaml`:
 
 ```yaml
 model:
-  default: qwen3.6-35b-a3b-vllm-fast
-  provider: spark-litellm-local
-  base_url: http://localhost:4000/v1
+  default: qwen3.6-35b-a3b-vllm
+  provider: litellm-local
   context_length: 262144
 
 providers:
-  spark-litellm-local:
-    base_url: http://localhost:4000/v1
+  litellm-local:
     name: LiteLLM local
+    base_url: http://localhost:4000/v1
     api_key: sk-spark-local
-    model: qwen3.6-35b-a3b-vllm-fast
-    context_length: 262144
-    extra_body:
-      chat_template_kwargs:
-        enable_thinking: false
+    discover_models: false
+    models:
+      qwen3.6-35b-a3b-vllm:
+        context_length: 262144
+      qwen3.6-35b-a3b-vllm-fast:
+        context_length: 262144
 ```
 
 Because LiteLLM auth is disabled, any non-empty `api_key` works (`sk-spark-local` is just a placeholder).
 
-Run Hermes with the default model:
+`discover_models: false` keeps the picker limited to the two Qwen aliases. Without it, Hermes lists every model LiteLLM knows about (Ollama, MiniMax, embeddings, etc.).
+
+Run Hermes with the default (thinking) model:
 
 ```bash
 hermes chat
 ```
 
-Or explicitly pick the thinking model:
+Or explicitly pick the non-thinking model:
 
 ```bash
-hermes chat -m qwen3.6-35b-a3b-vllm
+hermes chat -m qwen3.6-35b-a3b-vllm-fast
 ```
 
 ### Migrating from OpenClaw to Hermes
@@ -150,8 +154,6 @@ If you need per-key access control, install Prisma, configure a database, and se
 Example `~/litellm/config.yaml`:
 
 ```yaml
-disable_user_auth: true
-
 model_list:
   # vLLM Qwen 3.6 35B-A3B (262K context)
   - model_name: qwen3.6-35b-a3b-vllm
@@ -163,22 +165,29 @@ model_list:
       mode: chat
       supports_vision: true
       max_input_tokens: 262144
+      max_tokens: 262144
 
   - model_name: qwen3.6-35b-a3b-vllm-fast
     litellm_params:
       model: openai/qwen3.6-35b-a3b
       api_base: http://localhost:8000/v1
       api_key: local
-      extra_body: {chat_template_kwargs: {enable_thinking: false}}
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
     model_info:
       mode: chat
       supports_vision: true
       max_input_tokens: 262144
+      max_tokens: 262144
 
 litellm_settings:
   drop_params: true
   request_timeout: 600
   num_retries: 1
+
+router_settings:
+  routing_strategy: simple-shuffle
 
 general_settings:
   # No master_key / DB auth. See note above.
@@ -340,30 +349,33 @@ On the remote PC, use a single LiteLLM provider and switch models with `-m`:
 ```yaml
 # ~/.hermes/config.yaml on the remote machine
 model:
-  default: qwen3.6-35b-a3b-vllm-fast
-  provider: spark-litellm-remote
-  base_url: http://<spark-ip>:4000/v1
+  default: qwen3.6-35b-a3b-vllm
+  provider: litellm-remote
   context_length: 262144
 
 providers:
-  spark-litellm-remote:
-    base_url: http://<spark-ip>:4000/v1
+  litellm-remote:
     name: Spark LiteLLM (remote)
+    base_url: http://<spark-ip>:4000/v1
     api_key: sk-spark-local
-    model: qwen3.6-35b-a3b-vllm-fast
-    context_length: 262144
+    discover_models: false
+    models:
+      qwen3.6-35b-a3b-vllm:
+        context_length: 262144
+      qwen3.6-35b-a3b-vllm-fast:
+        context_length: 262144
 ```
 
-Run with the default (fast) model:
+Run with the default (thinking) model:
 
 ```bash
 hermes chat
 ```
 
-Or explicitly switch to thinking mode:
+Or explicitly switch to the non-thinking alias:
 
 ```bash
-hermes chat -m qwen3.6-35b-a3b-vllm
+hermes chat -m qwen3.6-35b-a3b-vllm-fast
 ```
 
 ### Connect Opencode from another machine
@@ -373,7 +385,7 @@ On the remote PC, add a LiteLLM provider in `~/.config/opencode/opencode.json`:
 ```json
 {
   "provider": {
-    "spark-litellm-remote": {
+    "litellm-remote": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "Spark LiteLLM (remote LAN)",
       "options": {
@@ -388,14 +400,14 @@ On the remote PC, add a LiteLLM provider in `~/.config/opencode/opencode.json`:
       }
     }
   },
-  "model": "spark-litellm-remote/qwen3.6-35b-a3b-vllm-fast"
+  "model": "litellm-remote/qwen3.6-35b-a3b-vllm"
 }
 ```
 
 Run:
 
 ```bash
-opencode run -m spark-litellm-remote/qwen3.6-35b-a3b-vllm-fast "hola"
+opencode run -m litellm-remote/qwen3.6-35b-a3b-vllm-fast "hola"
 ```
 
 ---
@@ -594,9 +606,19 @@ curl -s -X POST http://localhost:8001/v1/audio/transcriptions \
 - Verify LiteLLM is running (if using the proxy): `curl http://localhost:4000/v1/models`
 - Check that nothing else is bound to port 8000 or 4000.
 
+### Context length shows 131,072 instead of 262,144 in Hermes
+
+This happens because LiteLLM's `/v1/models` response does not include `max_tokens` for OpenAI-compatible backends, so Hermes falls back to its generic `qwen` family default (131K).
+
+Fix:
+
+1. Set `model.context_length: 262144` in `~/.hermes/config.yaml`.
+2. Also set `context_length: 262144` under each model in `providers.litellm-local.models`.
+3. Restart the gateway: `systemctl --user restart hermes-gateway.service`.
+
 ### Context length errors
 
-- Make sure `context_length` in Hermes/OpenClaw matches the model's real limit (262144 for Qwen 3.6 35B-A3B).
+- Make sure `context_length` in Hermes matches the model's real limit (262144 for Qwen 3.6 35B-A3B).
 - In Opencode, set `max_input_tokens` in the LiteLLM `model_info` if needed.
 
 ### Out of memory when using multiple frameworks
