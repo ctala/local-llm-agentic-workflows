@@ -117,13 +117,16 @@ For agentic workflows that ingest very long contexts (codebases, conversation hi
 
 ```bash
 --max-model-len 262144 \
---max-num-seqs 3 \
+--max-num-seqs 2 \
 --max-num-batched-tokens 32768 \
 --kv-cache-dtype fp8 \
---gpu-memory-utilization 0.95
+--gpu-memory-utilization 0.95 \
+--enable-auto-tool-choice \
+--tool-call-parser qwen3_xml \
+--reasoning-parser qwen3
 ```
 
-`--max-num-seqs 4` was also evaluated, but it left only ~1 GB of free unified memory and made the system vulnerable to memory spikes; **3 concurrent sequences is the stable configuration**.
+`--max-num-seqs 3` loads with `gpu-memory-utilization 0.94` and was the original stable configuration, but it leaves only ~1–2 GB of free unified memory and makes the system vulnerable to memory spikes. The **2-session configuration is now the recommended default** because it leaves headroom for LiteLLM, ASR and other auxiliary services while still supporting two 262K sessions in parallel.
 
 ### Single-sequence context scaling
 
@@ -153,8 +156,8 @@ For agentic workflows that ingest very long contexts (codebases, conversation hi
 ### Practical guidance for agents
 
 - **Average agent turn**: OpenClaw / Hermes-style agents typically use **8K–32K tokens** of active context per session.
-- **Conservative production setting**: **3 parallel sessions × 64K context** runs with sub-second TTFT and leaves comfortable headroom.
-- **Maximum context per session**: **~262K tokens** is achievable with 3 concurrent sessions; use it for occasional long-context tasks, not as the steady-state default.
+- **Conservative production setting**: **2 parallel sessions × 64K context** runs with sub-second TTFT and leaves comfortable headroom for LiteLLM/ASR.
+- **Maximum context per session**: **~262K tokens** is achievable with 2 concurrent sessions by default; 3 concurrent sessions are possible but leave little memory headroom.
 - **Do not use 4 sessions at 262K** unless the machine is dedicated to a single model and you can tolerate hangs from memory spikes.
 
 ---
@@ -171,7 +174,8 @@ Ready-to-run recipes are in [`scripts/`](scripts/):
 | `scripts/run-gemma4-31b.sh` | Gemma 4 31B IT NVFP4 on vLLM |
 | `scripts/run-nemotron3-nano-30b-a3b-trtllm.sh` | Nemotron-3 Nano BF16 on TRT-LLM |
 | `scripts/run-nemotron3-nano-30b-a3b-vllm.sh` | Nemotron-3 Nano BF16 on vLLM |
-| `scripts/run-qwen36-35b-a3b-extreme-context-3seq.sh` | Qwen 3.6 35B-A3B with 262K context × 3 sessions on vLLM |
+| `scripts/run-qwen36-35b-a3b-extreme-context-2seq.sh` | Qwen 3.6 35B-A3B with 262K context × 2 sessions on vLLM (recommended) |
+| `scripts/run-qwen36-35b-a3b-extreme-context-3seq.sh` | Qwen 3.6 35B-A3B with 262K context × 3 sessions on vLLM (tight memory) |
 | `scripts/run-nemotron3-super-120b-a12b-trtllm.sh` | Nemotron-3 Super NVFP4 on TRT-LLM |
 | `scripts/run-nemotron3-nano-omni-vllm.sh` | Nemotron-3 Nano Omni NVFP4 multimodal on vLLM |
 
@@ -189,7 +193,7 @@ python3 benchmarks/bench_model.py gemma-4-26b-a4b 512
 2. **Marlin is required for MoE NVFP4 on GB10**: use `--moe-backend marlin`. Native FP4 backends (CUTLASS/FlashInfer) may fail or produce NaN on sm_121.
 3. **FP8 KV cache** saves memory but relies on checkpoint scaling factors; vLLM warns about accuracy if they are missing.
 4. **Prefix caching** speeds up requests with shared context or repeated long prompts.
-5. **Tool calling**: `--enable-auto-tool-choice --tool-call-parser pythonic` works well for Hermes-style formats.
+5. **Tool calling**: Qwen 3.6 requires `--enable-auto-tool-choice --tool-call-parser qwen3_xml --reasoning-parser qwen3`; other parsers return XML in `content` and leave the native `tool_calls` array empty.
 6. **max-num-batched-tokens**: for multimodal input (Gemma 4), must be >= `max_tokens_per_mm_item` (e.g. 2496 for Gemma 4, 4096 by default).
 7. **TensorRT Model Optimizer on GB10**: quantizing Qwen 3.6 from BF16 requires converting the VLM checkpoint to text-only and using total GPU memory (not free memory) because `accelerate` does not understand the 128 GB unified pool.
 8. **TRT-LLM PyTorch backend** reads `hf_quant_config.json`; use `--backend pytorch` and `--kv_cache_dtype fp8` for HF NVFP4 checkpoints.
@@ -202,11 +206,11 @@ python3 benchmarks/bench_model.py gemma-4-26b-a4b 512
 For agentic workflows on DGX Spark and similar 96–128 GB edge AI workstations:
 
 - **Gemma 4 26B-A4B community + patch** → ~49.5 tok/s, tool calling, low VRAM.
-- **Qwen 3.6 35B-A3B RedHatAI** → ~42.2 tok/s, tool calling, image/video support, and **up to 3×262K context sessions**.
+- **Qwen 3.6 35B-A3B RedHatAI** → ~42.2 tok/s, tool calling, image/video support, and **up to 2×262K context sessions** (recommended) or 3×262K with tight memory.
 - **Qwen 3.6 35B-A3B MLP-only NVFP4** (custom TRT-LLM) → ~34.4 tok/s if you prefer the official NVIDIA stack.
 - **Nemotron-3-Nano-Omni** → ~40.0 tok/s, text + image, best official multimodal option.
 - **Nemotron-3-Super-120B-A12B** → ~14.7 tok/s with TRT-LLM only, for quality-first workloads.
 
 Gemma 4 31B dense should be reserved only for tasks where the dense model quality justifies ~7 tok/s.
 
-**If your agent framework (OpenClaw, Hermes, etc.) needs the largest possible context window on a single local GPU**, Qwen 3.6 35B-A3B on vLLM is the clear choice: it delivers the model's full 262K context length across 3 parallel sessions while remaining stable.
+**If your agent framework (OpenClaw, Hermes, etc.) needs the largest possible context window on a single local GPU**, Qwen 3.6 35B-A3B on vLLM is the clear choice: it delivers the model's full 262K context length across 2 parallel sessions by default (3 sessions are possible but leave little memory headroom).

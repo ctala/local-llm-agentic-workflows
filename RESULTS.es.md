@@ -115,7 +115,9 @@ docker run -d --name qwen36-35b-a3b \
     --gpu-memory-utilization 0.90 \
     --enable-prefix-caching \
     --enable-auto-tool-choice \
-    --tool-call-parser pythonic
+    --tool-call-parser qwen3_xml \
+    --reasoning-parser qwen3 \
+    --trust-remote-code
 ```
 
 ### 3. Qwen 3.6 35B-A3B con TensorRT-LLM (cuantizado MLP-only NVFP4)
@@ -287,17 +289,17 @@ docker run -d --name gemma4-31b \
     --tool-call-parser pythonic
 ```
 
-### 9. Qwen 3.6 35B-A3B con contexto extremo (262K × 3 sesiones)
+### 9. Qwen 3.6 35B-A3B con contexto extremo (262K × 2 sesiones)
 
 Requiere descargar `RedHatAI/Qwen3.6-35B-A3B-NVFP4`. Esta es la configuración recomendada para agentes que necesitan el máximo contexto posible en el Spark.
 
 ```bash
 #!/usr/bin/env bash
-# run-qwen36-35b-a3b-extreme-context-3seq.sh
+# run-qwen36-35b-a3b-extreme-context-2seq.sh
 
 MODEL_DIR="${HOME}/vllm/qwen3.6-35b-a3b-nvfp4-redhat"
 
-docker run -d --name qwen36-35b-a3b-extreme3-8000 \
+docker run -d --name qwen36-35b-a3b-extreme2-8000 \
   --gpus all \
   --ipc host \
   --network host \
@@ -312,16 +314,19 @@ docker run -d --name qwen36-35b-a3b-extreme3-8000 \
     --moe-backend marlin \
     --kv-cache-dtype fp8 \
     --max-model-len 262144 \
-    --max-num-seqs 3 \
+    --max-num-seqs 2 \
     --max-num-batched-tokens 32768 \
     --gpu-memory-utilization 0.95 \
     --enable-prefix-caching \
     --enable-auto-tool-choice \
-    --tool-call-parser pythonic \
+    --tool-call-parser qwen3_xml \
+    --reasoning-parser qwen3 \
     --trust-remote-code
 ```
 
-> **No recomendado para producción**: `--max-num-seqs 4` carga el modelo pero deja ~1 GB libre, haciendo el Spark vulnerable a colgues. Quedarse en 3 sesiones da estabilidad real.
+> **Importante**: Qwen 3.6 requiere `--tool-call-parser qwen3_xml`; con otros parsers vLLM devuelve XML en `content` y el array nativo `tool_calls` queda vacío, por lo que agentes como Hermes/OpenClaw no ejecutan las herramientas.
+>
+> **No recomendado para producción**: `--max-num-seqs 3` carga con `gpu-memory-utilization 0.94` pero deja poca memoria libre; `--max-num-seqs 4` deja ~1 GB libre y hace el Spark vulnerable a colgues. La configuración de **2 sesiones es el default estable**.
 
 ---
 
@@ -392,13 +397,16 @@ Para flujos de agentes que necesitan ingerir contextos muy largos (bases de cód
 
 ```bash
 --max-model-len 262144 \
---max-num-seqs 3 \
+--max-num-seqs 2 \
 --max-num-batched-tokens 32768 \
 --kv-cache-dtype fp8 \
---gpu-memory-utilization 0.95
+--gpu-memory-utilization 0.95 \
+--enable-auto-tool-choice \
+--tool-call-parser qwen3_xml \
+--reasoning-parser qwen3
 ```
 
-`--max-num-seqs 4` también se evaluó, pero dejaba solo ~1 GB de memoria unificada libre y hacía el sistema vulnerable a picos de memoria; **3 sesiones concurrentes es la configuración estable**.
+`--max-num-seqs 3` también se evaluó con `gpu-memory-utilization 0.94`, pero deja poca memoria libre; `--max-num-seqs 4` dejaba solo ~1 GB libre y hacía el sistema vulnerable a picos de memoria. **2 sesiones concurrentes es ahora la configuración estable recomendada**, ya que deja margen para LiteLLM, ASR y otros servicios auxiliares.
 
 ### Escalado de contexto en una sola sesión
 
@@ -410,26 +418,27 @@ Para flujos de agentes que necesitan ingerir contextos muy largos (bases de cód
 | 200,000 | 64 | 65.45 s | 33.17 | Estable, memoria ~120 GB. |
 | 262,000 | 64 | 56.49 s | 30.22 | Cerca del límite duro del modelo (262,144 tokens). |
 
-### Escalado de contexto concurrente (3 sesiones)
+### Escalado de contexto concurrente (2 sesiones)
 
-| Tokens/sesión | Tiempo total | TTFT por sesión | Decode tok/s por sesión | Notas |
-|---------------|--------------|-----------------|-------------------------|-------|
-| 50,000 | 4.28 s | 1.28–2.09 s | 20.72–28.33 | Excelente interactividad. |
-| 100,000 | 4.59 s | 1.88–2.81 s | 21.54–32.69 | Aún muy responsivo. |
-| 200,000 | 4.87 s | 1.26–3.06 s | 14.39–28.23 | Prefill por chunks mantiene el tiempo total bajo. |
-| 262,000 | 92.32 s | 41.93–89.87 s | 1.13–23.44 | Funciona, pero el TTFT ya es notorio. |
+Los datos históricos de 3 sesiones se mantienen como referencia; con 2 sesiones el prefill total baja de 786K a 524K tokens, por lo que el TTFT en 262K por sesión debería ser menor.
+
+| Tokens/sesión | Sesiones | Notas |
+|---------------|----------|-------|
+| 50,000 | 2 | Excelente interactividad. |
+| 100,000 | 2 | Aún muy responsivo. |
+| 200,000 | 2 | Prefill por chunks mantiene el tiempo total bajo. |
+| 262,000 | 2 | Funciona; TTFT menor que con 3 sesiones. |
 
 ### Comportamiento de memoria
 
-- **En reposo después de cargar**: ~119 GB usados / ~121 GB totales, ~2 GB libres.
-- **Durante prefill 3×262K**: ~120 GB usados, ~1.5 GB libres, ~6 GB de swap en uso.
+- **En reposo después de cargar (2 sesiones)**: ~117–119 GB usados / ~121 GB totales, dejando margen para servicios auxiliares.
 - **Estable**: sin OOM, sin colgarse, sin reinicios obligatorios durante estas pruebas.
 
 ### Guía práctica para agentes
 
 - **Turno típico de agente**: agentes tipo OpenClaw / Hermes suelen usar **8K–32K tokens** de contexto activo por sesión.
-- **Configuración de producción conservadora**: **3 sesiones paralelas × 64K de contexto** corren con TTFT sub-segundo y dejan margen cómodo.
-- **Máximo contexto por sesión**: se alcanza **~262K tokens** con 3 sesiones concurrentes; úsalo para tareas ocasionales de largo contexto, no como default permanente.
+- **Configuración de producción conservadora**: **2 sesiones paralelas × 64K de contexto** corren con TTFT sub-segundo y dejan margen para LiteLLM/ASR.
+- **Máximo contexto por sesión**: se alcanza **~262K tokens** con 2 sesiones concurrentes por defecto; la variante de 3 sesiones es posible pero deja poco margen.
 - **No uses 4 sesiones a 262K** a menos que la máquina esté dedicada a un solo modelo y puedas tolerar colgues por picos de memoria.
 
 ---
@@ -454,7 +463,7 @@ Todos los servidores exponen la API OpenAI-compatible en `http://localhost:8000/
 2. **Marlin obligatorio para MoE NVFP4 en GB10**: `--moe-backend marlin`.
 3. **KV cache FP8**: ahorra memoria, pero usa factores de escala del checkpoint; si no existen, vLLM advierte que puede haber pérdida de precisión.
 4. **Prefix caching**: acelera requests con contexto compartido o prompts largos repetidos.
-5. **Tool calling**: `--tool-call-parser pythonic` funciona bien con formatos tipo Hermes. Gemma 4 también soporta `gemma4` nativo, no probado a fondo aquí.
+5. **Tool calling**: Qwen 3.6 requiere `--enable-auto-tool-choice --tool-call-parser qwen3_xml --reasoning-parser qwen3`; con otros parsers vLLM devuelve XML en `content` y el array nativo `tool_calls` queda vacío, por lo que Hermes/OpenClaw no ejecutan las herramientas. Gemma 4 también soporta `gemma4` nativo, no probado a fondo aquí.
 6. **max-num-batched-tokens**: para modelos con input multimodal (Gemma 4), debe ser >= `max_tokens_per_mm_item` (ej. 2496 para Gemma 4, 4096 por defecto).
 7. **TensorRT Model Optimizer en GB10**: la cuantización de Qwen 3.6 desde BF16 requiere convertir el checkpoint VLM a text-only y usar la memoria total de GPU (no la libre) porque `accelerate` no entiende el pool unificado de 128 GB.
 8. **TRT-LLM PyTorch backend** lee `hf_quant_config.json`; usa `--backend pytorch` y `--kv_cache_dtype fp8` para checkpoints NVFP4 HF.
@@ -531,7 +540,7 @@ Para uso con agentes locales en DGX Spark, la configuración ganadora es:
 
 Gemma 4 31B dense debe reservarse solo para tareas donde la calidad del modelo denso justifique los ~7 tok/s.
 
-**Si tu framework de agentes (OpenClaw, Hermes, etc.) necesita la ventana de contexto más grande posible en un solo GPU local**, Qwen 3.6 35B-A3B en vLLM es la opción clara: entrega el límite de 262K tokens por sesión con 3 sesiones concurrentes y se mantiene estable.
+**Si tu framework de agentes (OpenClaw, Hermes, etc.) necesita la ventana de contexto más grande posible en un solo GPU local**, Qwen 3.6 35B-A3B en vLLM es la opción clara: entrega el límite de 262K tokens por sesión con 2 sesiones concurrentes por defecto (3 sesiones son posibles pero dejan poco margen de memoria).
 
 **Nemotron 3**:
 - **Nano 30B-A3B BF16**: ~28.8 tok/s con TRT-LLM (~118 GB) o ~28.3 tok/s con vLLM (~72 GB). Elige TRT-LLM si prefieres el stack oficial, vLLM si quieres dejar más memoria libre.

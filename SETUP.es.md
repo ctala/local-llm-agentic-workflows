@@ -140,7 +140,9 @@ docker run -d --name qwen36-35b-a3b \
     --gpu-memory-utilization 0.90 \
     --enable-prefix-caching \
     --enable-auto-tool-choice \
-    --tool-call-parser pythonic
+    --tool-call-parser qwen3_xml \
+    --reasoning-parser qwen3 \
+    --trust-remote-code
 ```
 
 ### 3.4 NVIDIA Nemotron 3
@@ -343,7 +345,7 @@ El formato **full NVFP4** aún no es compatible con TRT-LLM 1.3.0rc13 por la ate
 - **HF_TOKEN requerido** para descargar modelos Gemma/Qwen de HuggingFace.
 - **Memoria**: el modelo Gemma 4 26B-A4B NVFP4 ocupa ~18 GB en memoria al cargar; KV cache FP8 deja ~82 GB disponibles.
 - **Marlin backend**: obligatorio en GB10 para MoE NVFP4. Backends nativos FP4 (CUTLASS/FlashInfer) pueden fallar o dar NaN en sm_121.
-- **Tool calling**: `--enable-auto-tool-choice --tool-call-parser pythonic` funciona para formato Hermes-style. Gemma 4 también tiene parser nativo `gemma4` por probar.
+- **Tool calling**: Qwen 3.6 requiere `--enable-auto-tool-choice --tool-call-parser qwen3_xml --reasoning-parser qwen3`; sin `qwen3_xml`, vLLM devuelve XML en `content` y el array nativo `tool_calls` queda vacío, por lo que agentes como Hermes/OpenClaw no ejecutan herramientas. Gemma 4 también tiene parser nativo `gemma4` por probar.
 - **TRT-LLM con Nemotron 3**: los checkpoints oficiales cargan directamente con `trtllm-serve --backend pytorch --kv_cache_dtype fp8`. El Nano BF16 usa ~118 GB del pool unificado; el Super NVFP4 ~110 GB.
 - **vLLM con Nemotron 3**: el Nano BF16 y el Omni NVFP4 funcionan con `vllm/vllm-openai:gemma4-0505-cu130`. El Super 120B-A12B no es viable: el V1 engine reserva memoria agresivamente y provoca `CUDA OOM` o colgado del sistema cuando hay otros consumidores de VRAM.
 - **Servicios en segundo plano**: antes de lanzar modelos grandes, verifica que no haya `llama-server`, contenedores u otros procesos ocupando memoria GPU. En este trabajo, dos servidores Qwen GGUF en llama.cpp usaban ~76 GB y causaban OOM al iniciar vLLM.

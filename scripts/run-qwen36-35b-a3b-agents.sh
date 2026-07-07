@@ -30,7 +30,8 @@ docker run -d --name "qwen36-35b-a3b-agents-${PORT}" \
     --gpu-memory-utilization 0.95 \
     --enable-prefix-caching \
     --enable-auto-tool-choice \
-    --tool-call-parser pythonic \
+    --tool-call-parser qwen3_xml \
+    --reasoning-parser qwen3 \
     --trust-remote-code
 
 echo "Waiting for healthcheck..."

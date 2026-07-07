@@ -61,6 +61,7 @@ The recipes were tested on the **NVIDIA DGX Spark** and should work on any ARM64
 ├── scripts/                      # Docker launch recipes and helpers
 │   ├── run-gemma4-26b-a4b.sh
 │   ├── run-qwen36-35b-a3b.sh
+│   ├── run-qwen36-35b-a3b-extreme-context-2seq.sh
 │   ├── run-qwen36-35b-a3b-extreme-context-3seq.sh
 │   ├── run-qwen36-35b-a3b-trtllm.sh
 │   ├── run-gemma4-31b.sh
@@ -154,7 +155,7 @@ Based on throughput, memory headroom and tool-calling support on DGX Spark and e
 2. **Best quality/speed balance** → **Qwen 3.6 35B-A3B** (`RedHatAI/Qwen3.6-35B-A3B-NVFP4`) on vLLM.
    - ~42 tok/s, ~22 GB memory, excellent tool calling, image/video support.
 3. **Maximum context for long-document / multi-turn agents** → **Qwen 3.6 35B-A3B** on vLLM with the extreme-context recipe.
-   - Up to **3 parallel sessions × 262K tokens** on DGX Spark; stable with `--max-num-seqs 3`.
+   - Up to **2 parallel sessions × 262K tokens** on DGX Spark; stable with `--max-num-seqs 2` and `gpu-memory-utilization 0.95`.
 4. **Official NVIDIA multimodal** → **Nemotron-3 Nano Omni 30B-A3B** on vLLM.
    - ~40 tok/s, ~40 GB memory, image support. Audio decoding needs more work.
 5. **Official NVIDIA stack** → **Qwen 3.6 35B-A3B MLP-only NVFP4** on TensorRT-LLM.
@@ -170,33 +171,40 @@ Agentic frameworks such as **Hermes** and **OpenClaw** can run multiple conversa
 
 ### Configuration
 
-Use the extreme-context recipe in `scripts/run-qwen36-35b-a3b-extreme-context-3seq.sh`:
+Use the extreme-context recipe in `scripts/run-qwen36-35b-a3b-extreme-context-2seq.sh`:
 
 ```bash
 --max-model-len 262144 \
---max-num-seqs 3 \
+--max-num-seqs 2 \
 --max-num-batched-tokens 32768 \
 --kv-cache-dtype fp8 \
---gpu-memory-utilization 0.95
+--gpu-memory-utilization 0.95 \
+--enable-auto-tool-choice \
+--tool-call-parser qwen3_xml \
+--reasoning-parser qwen3
 ```
 
-`--max-num-seqs 4` loads, but it leaves only ~1 GB of free unified memory and makes the Spark vulnerable to hangs. **3 concurrent sequences is the stable production limit**.
+This is the recommended default for agentic workloads. It gives **two 262K-token sessions in parallel** while leaving headroom for LiteLLM, ASR or other auxiliary services.
 
-### Verified concurrency
+A 3-sequence variant (`scripts/run-qwen36-35b-a3b-extreme-context-3seq.sh` with `gpu-memory-utilization 0.94`) loads, but it leaves little free unified memory and makes the Spark vulnerable to hangs. Use it only when vLLM is the only heavy service running.
 
-| Context per session | Sessions | Wall time | Notes |
-|---------------------|----------|-----------|-------|
-| 50K tokens | 3 | ~4.3 s | Sub-second TTFT, very responsive. |
-| 100K tokens | 3 | ~4.6 s | Still sub-second TTFT for most sessions. |
-| 200K tokens | 3 | ~4.9 s | Chunked prefill keeps total time low. |
-| **262K tokens** | **3** | **~92 s** | **Works**, but TTFT rises to ~40–90 s because 786K total tokens must be prefilled. |
+### Verified concurrency (2-session config)
+
+| Context per session | Sessions | Notes |
+|---------------------|----------|-------|
+| 50K tokens | 2 | Sub-second TTFT, very responsive. |
+| 100K tokens | 2 | Sub-second TTFT for both sessions. |
+| 200K tokens | 2 | Chunked prefill keeps total time low. |
+| **262K tokens** | **2** | **Works**; total prefill is 524K tokens instead of 786K, so TTFT is lower than the 3-session variant. |
 
 ### Practical guidance
 
 - **Typical agent turn**: OpenClaw / Hermes-style agents use **8K–32K tokens** of active context per session.
-- **Comfortable production default**: **3 sessions × 64K context** runs with sub-second TTFT and leaves memory headroom.
-- **Maximum per session**: **~262K tokens** is achievable with 3 concurrent sessions; reserve it for occasional long-context tasks, not as the steady-state default.
-- **Memory at rest after loading**: ~119 GB used / ~121 GB total. Keep other GPU/VRAM consumers stopped.
+- **Comfortable production default**: **2 sessions × 64K context** runs with sub-second TTFT and leaves memory headroom for LiteLLM/ASR.
+- **Maximum per session**: **~262K tokens** is achievable with 2 concurrent sessions; reserve it for occasional long-context tasks, not as the steady-state default.
+- **Memory at rest after loading**: ~117–119 GB used / ~121 GB total. Keep other GPU/VRAM consumers stopped.
+
+See [`RESULTS.md`](RESULTS.md) for the older 3-session measurements and full context-scaling tables.
 
 See [`RESULTS.md`](RESULTS.md) for the full context-scaling tables.
 
@@ -240,7 +248,7 @@ hermes chat --provider local-qwen-35b-vllm-262k -m qwen3.6-35b-a3b
 - Resolve audio decoding for Nemotron-3 Nano Omni.
 - Add LiteLLM proxy recipes to expose multiple models on different ports.
 - Expand coverage to other high-memory edge devices beyond DGX Spark.
-- Validate 3×262K context under real OpenClaw / Hermes multi-turn traces.
+- Validate 2×262K context under real OpenClaw / Hermes multi-turn traces.
 
 ---
 
