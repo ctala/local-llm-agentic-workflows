@@ -31,7 +31,8 @@ docker run -d --name "qwen36-35b-a3b-${PORT}" \
     --gpu-memory-utilization "${GPU_UTIL}" \
     --enable-prefix-caching \
     --enable-auto-tool-choice \
-    --tool-call-parser pythonic
+    --tool-call-parser qwen3_xml \
+    --reasoning-parser qwen3
 
 echo "Esperando healthcheck..."
 until curl -sf "http://localhost:${PORT}/health" >/dev/null 2>&1; do

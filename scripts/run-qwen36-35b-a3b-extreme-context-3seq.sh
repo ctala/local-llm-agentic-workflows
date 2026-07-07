@@ -36,10 +36,11 @@ docker run -d --name "qwen36-35b-a3b-extreme3-${PORT}" \
     --max-model-len "${MAX_MODEL_LEN}" \
     --max-num-seqs "${MAX_NUM_SEQS}" \
     --max-num-batched-tokens 32768 \
-    --gpu-memory-utilization 0.95 \
+    --gpu-memory-utilization 0.94 \
     --enable-prefix-caching \
     --enable-auto-tool-choice \
-    --tool-call-parser pythonic \
+    --tool-call-parser qwen3_xml \
+    --reasoning-parser qwen3 \
     --trust-remote-code
 
 echo "Waiting for healthcheck..."

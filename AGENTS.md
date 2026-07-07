@@ -456,6 +456,56 @@ For routine agent turns (file edits, web searches, small code generation), the n
 
 ---
 
+## Tool calling with Qwen 3.6
+
+Hermes (and most OpenAI-compatible agents) expect tool calls in the native `tool_calls` array of the chat-completion response. Qwen 3.6, however, emits tool calls as XML inside the message `content` unless vLLM is told to parse them.
+
+When serving Qwen 3.6 with vLLM, add these flags:
+
+```bash
+--enable-auto-tool-choice \
+--tool-call-parser qwen3_xml \
+--reasoning-parser qwen3
+```
+
+All Qwen 3.6 launch scripts in this repo already include them. Without `--tool-call-parser qwen3_xml`, vLLM returns XML such as:
+
+```xml
+<tool_call>\n<name>get_weather</name>\n<arguments>{"location":"Paris"}</arguments>\n</tool_call>
+```
+
+Hermes sees the XML text but receives an empty `tool_calls` array, so it prints `<tool_call>` instead of executing the tool.
+
+### Verify tool calls at the vLLM level
+
+```bash
+curl -s http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3.6-35b-a3b",
+    "messages": [{"role": "user", "content": "weather in Paris"}],
+    "tools": [{"type": "function", "function": {"name": "get_weather", "description": "Get current weather for a location", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}}],
+    "tool_choice": "auto"
+  }' | jq '.choices[0].message.tool_calls'
+```
+
+A working response contains a populated `tool_calls` array:
+
+```json
+[
+  {
+    "id": "chatcmpl-tool-...",
+    "type": "function",
+    "function": {
+      "name": "get_weather",
+      "arguments": "{\"location\": \"Paris\"}"
+    }
+  }
+]
+```
+
+If the result is `null`, check that the parser flags are present in the launch script and restart the container.
+
 ## Choosing the right model alias
 
 With the current vLLM-only setup on the Spark, the usable Qwen 3.6 35B-A3B aliases are the two LiteLLM-routed `*-vllm` models. The non-`-vllm` aliases (e.g. `qwen3.6-35b-a3b`, `qwen3.6-35b-a3b-fast`) previously routed to local llama.cpp/Ollama endpoints and are no longer active.
@@ -487,6 +537,21 @@ For agentic work that benefits from reasoning, use the `*-vllm` variant. For fas
 - The vLLM Qwen 3.6 35B-A3B container uses ~119–120 GB of the 121 GB unified memory.
 - LiteLLM itself is lightweight, but running additional local services (llama-server, Ollama, etc.) can push the system over the edge.
 - Stop unused model services before starting another large model.
+
+### Hermes prints `<tool_call>` but does not execute the tool
+
+This happens when vLLM returns the tool call as XML text in `message.content` instead of the native `message.tool_calls` array. Hermes only executes tools from the native array.
+
+Fix:
+
+1. Stop the vLLM container.
+2. Confirm the launch script includes:
+   ```bash
+   --enable-auto-tool-choice \
+   --tool-call-parser qwen3_xml \
+   --reasoning-parser qwen3
+   ```
+3. Restart the container and verify with the curl test in the "Tool calling with Qwen 3.6" section above.
 
 ### Network access not working
 
