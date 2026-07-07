@@ -1,0 +1,12 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { Content, frontmatter } from '../content/pages/README.md';
+
+const title = frontmatter.title || 'Best Local LLM Deployment Guide for DGX Spark, GB10 & Edge AI';
+const description = frontmatter.description || 'Practical guide, benchmarks and Docker recipes for running local LLMs on DGX Spark and high-memory edge AI workstations.';
+const keywords = frontmatter.keywords || [];
+---
+
+<Layout title={title} description={description} keywords={keywords} type="website">
+  <Content />
+</Layout>

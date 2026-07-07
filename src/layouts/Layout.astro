@@ -1,0 +1,96 @@
+---
+import '../styles/global.css';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+
+export interface Props {
+  title: string;
+  description: string;
+  keywords?: string[];
+  image?: string;
+  canonical?: string;
+  type?: string;
+}
+
+const {
+  title,
+  description,
+  keywords = [],
+  canonical,
+  type = 'website',
+} = Astro.props;
+
+const siteUrl = 'https://ctala.github.io/local-llm-agentic-workflows';
+const pageUrl = canonical ? `${siteUrl}${canonical}` : Astro.url.href;
+const fullTitle = title.includes('DGX Spark')
+  ? title
+  : `${title} | Local LLM Deployment Guide`;
+const keywordString = [
+  'local LLM',
+  'DGX Spark',
+  'NVIDIA GB10',
+  'edge AI',
+  'vLLM',
+  'TensorRT-LLM',
+  ...keywords,
+].join(', ');
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <meta name="keywords" content={keywordString} />
+    <meta name="author" content="Cristian Tala" />
+    <link rel="canonical" href={pageUrl} />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content={type} />
+    <meta property="og:url" content={pageUrl} />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+
+    <!-- JSON-LD -->
+    <script
+      type="application/ld+json"
+      set:html={JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': type === 'article' ? 'TechArticle' : 'WebSite',
+        headline: title,
+        description,
+        url: pageUrl,
+        author: {
+          '@type': 'Person',
+          name: 'Cristian Tala',
+          url: 'https://benchmarks.cristiantala.com/',
+        },
+        publisher: {
+          '@type': 'Person',
+          name: 'Cristian Tala',
+        },
+        isPartOf: {
+          '@type': 'WebSite',
+          name: 'Local LLM Agentic Workflows',
+          url: siteUrl,
+        },
+      })}
+    />
+
+    <meta name="generator" content={Astro.generator} />
+  </head>
+  <body>
+    <Nav />
+    <main id="main-content">
+      <slot />
+    </main>
+    <Footer />
+  </body>
+</html>

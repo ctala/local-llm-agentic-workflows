@@ -1,6 +1,6 @@
 # Setup Log: Running Local LLMs on DGX Spark & 96–128 GB Edge AI Workstations
 
-> For the quick start guide see [`README.md`](./README.md). For the original Spanish log see [`SETUP.es.md`](./SETUP.es.md).
+> For the quick start guide see [Home](/local-llm-agentic-workflows/). For the original Spanish log see [Setup in Spanish](/local-llm-agentic-workflows/setup.es/).
 
 This document is a detailed work log of the attempts, errors and fixes encountered while optimizing **Gemma 4**, **Qwen 3.6** and **NVIDIA Nemotron 3** for local agentic workflows on the NVIDIA DGX Spark and equivalent high-memory edge AI hardware.
 

@@ -1,6 +1,6 @@
 # Resultados finales: Gemma 4 / Qwen 3.6 / Nemotron 3 en NVIDIA DGX Spark
 
-> Para una guía rápida de uso, véase [`README.md`](./README.md). Este documento conserva el detalle completo de resultados y notas técnicas.
+> Para una guía rápida de uso, véase [Inicio](/local-llm-agentic-workflows/). Este documento conserva el detalle completo de resultados y notas técnicas.
 
 ## Hardware / software base
 

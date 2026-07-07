@@ -1,0 +1,12 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { Content, frontmatter } from '../content/pages/SETUP.es.md';
+
+const title = frontmatter.title || 'Log de configuración: Despliegue de LLMs locales en DGX Spark';
+const description = frontmatter.description || 'Pasos detallados de configuración, errores encontrados y soluciones para ejecutar vLLM y TensorRT-LLM en NVIDIA DGX Spark y hardware edge AI similar.';
+const keywords = frontmatter.keywords || [];
+---
+
+<Layout title={title} description={description} keywords={keywords} type="article">
+  <Content />
+</Layout>

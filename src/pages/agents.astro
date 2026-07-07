@@ -1,0 +1,12 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { Content, frontmatter } from '../content/pages/AGENTS.md';
+
+const title = frontmatter.title || 'Agent Framework Integration: Hermes, OpenClaw, Opencode & LiteLLM';
+const description = frontmatter.description || 'Connect local LLMs running on DGX Spark to Hermes, OpenClaw, Opencode and LiteLLM. Includes tool calling, reasoning modes and network access.';
+const keywords = frontmatter.keywords || [];
+---
+
+<Layout title={title} description={description} keywords={keywords} type="article">
+  <Content />
+</Layout>

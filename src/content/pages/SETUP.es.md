@@ -1,6 +1,6 @@
 # Registro de optimización de LLMs en DGX Spark
 
-> Para una guía rápida de uso, véase [`README.md`](./README.md). Este documento es el log detallado de trabajo.
+> Para una guía rápida de uso, véase [Inicio](/local-llm-agentic-workflows/). Este documento es el log detallado de trabajo.
 
 ## Objetivo
 Encontrar la mejor forma de ejecutar modelos locales optimizados para el **NVIDIA DGX Spark** (GB10 Grace Blackwell, ARM64/aarch64, 128 GB memoria unificada, CUDA 13.0, sm_121), enfocado en uso con agentes (Hermes/OpenClaw/n8n/Open WebUI).

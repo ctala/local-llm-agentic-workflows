@@ -1,6 +1,6 @@
 # Local LLM Benchmark Results on DGX Spark & 96–128 GB Edge AI Workstations
 
-> For the quick start guide see [`README.md`](./README.md). For the original Spanish log see [`RESULTS.es.md`](./RESULTS.es.md).
+> For the quick start guide see [Home](/local-llm-agentic-workflows/). For the original Spanish log see [Results in Spanish](/local-llm-agentic-workflows/results.es/).
 
 This document contains the full benchmark results and technical notes for running **Gemma 4**, **Qwen 3.6** and **NVIDIA Nemotron 3** locally on the NVIDIA DGX Spark and equivalent high-memory edge AI hardware.
 

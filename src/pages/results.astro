@@ -1,0 +1,12 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { Content, frontmatter } from '../content/pages/RESULTS.md';
+
+const title = frontmatter.title || 'Benchmark Results: Local LLM Throughput on DGX Spark';
+const description = frontmatter.description || 'Decode tok/s, memory footprint and stability results for Gemma 4, Qwen 3.6 and NVIDIA Nemotron 3 on DGX Spark and 96–128 GB edge AI workstations.';
+const keywords = frontmatter.keywords || [];
+---
+
+<Layout title={title} description={description} keywords={keywords} type="article">
+  <Content />
+</Layout>

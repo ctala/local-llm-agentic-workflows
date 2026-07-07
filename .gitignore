@@ -30,6 +30,17 @@ venv/
 *.swo
 *~
 
+# Node / Astro
+node_modules/
+dist/
+.astro/
+.cache/
+
+# Lockfiles (optional; keep one if you prefer reproducible installs)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
 # OS
 .DS_Store
 Thumbs.db
