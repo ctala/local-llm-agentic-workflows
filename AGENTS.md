@@ -506,6 +506,23 @@ A working response contains a populated `tool_calls` array:
 
 If the result is `null`, check that the parser flags are present in the launch script and restart the container.
 
+## Long-context launch scripts
+
+For agentic workloads on the Spark, Qwen 3.6 35B-A3B is served at its maximum context length (262,144 tokens). The trade-off is how many of those long conversations can run in parallel:
+
+| Script | `max_num_seqs` | `gpu-memory-utilization` | KV cache (full) | Use case |
+|--------|---------------|--------------------------|-----------------|----------|
+| `run-qwen36-35b-a3b-extreme-context-2seq.sh` | 2 | 0.95 | ~20 GB | **Recommended.** Two 262K sessions in parallel with headroom for LiteLLM/ASR. |
+| `run-qwen36-35b-a3b-extreme-context-3seq.sh` | 3 | 0.94 | ~30 GB | Maximum concurrency, but tight on memory. Use only when vLLM is the only heavy service. |
+
+The 2-sequence config is the best default for Hermes/OpenClaw because it leaves breathing room for auxiliary services without sacrificing much total context (524K tokens across both sessions). The 3-sequence config pushes the Spark close to its limit and is more likely to OOM if another service starts.
+
+Start the recommended config:
+
+```bash
+./scripts/run-qwen36-35b-a3b-extreme-context-2seq.sh
+```
+
 ## Choosing the right model alias
 
 With the current vLLM-only setup on the Spark, the usable Qwen 3.6 35B-A3B aliases are the two LiteLLM-routed `*-vllm` models. The non-`-vllm` aliases (e.g. `qwen3.6-35b-a3b`, `qwen3.6-35b-a3b-fast`) previously routed to local llama.cpp/Ollama endpoints and are no longer active.
