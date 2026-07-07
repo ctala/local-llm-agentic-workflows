@@ -147,7 +147,7 @@ If you need per-key access control, install Prisma, configure a database, and se
 
 ### Config file
 
-Example `/home/ctala/litellm/config.yaml`:
+Example `~/litellm/config.yaml`:
 
 ```yaml
 disable_user_auth: true
@@ -187,7 +187,7 @@ general_settings:
 
 ### Wrapper script for systemd
 
-Create `/home/ctala/litellm/run-no-auth.sh` so the systemd service can load `.env` (needed for cloud keys such as `MINIMAX_API_KEY`) while keeping `LITELLM_MASTER_KEY` unset:
+Create `~/litellm/run-no-auth.sh` so the systemd service can load `.env` (needed for cloud keys such as `MINIMAX_API_KEY`) while keeping `LITELLM_MASTER_KEY` unset:
 
 ```bash
 #!/usr/bin/env bash
@@ -203,7 +203,7 @@ exec "${SCRIPT_DIR}/.venv/bin/litellm" \
 Make it executable:
 
 ```bash
-chmod +x /home/ctala/litellm/run-no-auth.sh
+chmod +x ~/litellm/run-no-auth.sh
 ```
 
 Then update `~/.config/systemd/user/litellm-proxy.service`:
@@ -211,8 +211,8 @@ Then update `~/.config/systemd/user/litellm-proxy.service`:
 ```ini
 [Service]
 Type=simple
-ExecStart=/home/ctala/litellm/run-no-auth.sh
-WorkingDirectory=/home/ctala/litellm
+ExecStart=~/litellm/run-no-auth.sh
+WorkingDirectory=~/litellm
 Restart=always
 RestartSec=5
 ```
@@ -229,7 +229,7 @@ systemctl --user enable --now litellm-proxy.service
 Or manually:
 
 ```bash
-cd /home/ctala/litellm
+cd ~/litellm
 ./run-no-auth.sh
 ```
 
@@ -282,7 +282,7 @@ curl http://localhost:4000/v1/chat/completions \
 
 ### Test the proxy from another machine on the network
 
-Replace `<spark-ip>` with the LAN IP of the Spark (e.g. `192.168.88.190`):
+Replace `<spark-ip>` with the LAN IP of the Spark (e.g. `192.168.1.100`):
 
 ```bash
 # List available models

@@ -535,7 +535,7 @@ Dado lo anterior, **vLLM es la opción más rápida y sencilla hoy** para Gemma 
 Para uso con agentes locales en DGX Spark, la configuración ganadora es:
 
 - **Gemma 4 26B-A4B community + parche** → ~49.5 tok/s, tool calling, bajo uso de VRAM.
-- Alternativa de alta calidad y máximo contexto: **Qwen 3.6 35B-A3B RedHatAI** → ~42.2 tok/s, tool calling, soporte imagen/video y **hasta 3 sesiones paralelas de 262K tokens de contexto**.
+- Alternativa de alta calidad y máximo contexto: **Qwen 3.6 35B-A3B RedHatAI** → ~42.2 tok/s, tool calling, soporte imagen/video y **hasta 2 sesiones paralelas de 262K tokens de contexto** (3 sesiones son posibles pero dejan poco margen).
 - Alternativa oficial NVIDIA (TensorRT-LLM): **Qwen 3.6 35B-A3B MLP-only NVFP4** cuantizado desde BF16 → ~34.4 tok/s.
 
 Gemma 4 31B dense debe reservarse solo para tareas donde la calidad del modelo denso justifique los ~7 tok/s.

@@ -1,0 +1,22 @@
+# Jekyll / GitHub Pages configuration for SEO and theming
+title: "Best Local LLM Deployment Guide for DGX Spark, GB10 & Edge AI"
+description: "Practical guide, benchmarks and Docker recipes for running Gemma 4, Qwen 3.6 and NVIDIA Nemotron 3 locally on DGX Spark, GB10 and 96–128 GB edge AI workstations."
+url: "https://ctala.github.io"
+baseurl: "/local-llm-agentic-workflows"
+author:
+  name: "Cristian Tala"
+  url: "https://benchmarks.cristiantala.com/"
+lang: en
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+twitter:
+  username: "ctala"
+social:
+  name: Cristian Tala
+  links:
+    - https://github.com/ctala
+    - https://benchmarks.cristiantala.com/
+    - https://www.cristiantala.com/
+github:
+  repository_url: https://github.com/ctala/local-llm-agentic-workflows
