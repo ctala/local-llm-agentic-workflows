@@ -1,0 +1,18 @@
+[Unit]
+Description=Local ASR server (faster-whisper) for Hermes
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/ctala/asr-server/run.sh
+WorkingDirectory=/home/ctala/asr-server
+Restart=always
+RestartSec=10
+Environment="ASR_MODEL=large-v3"
+Environment="ASR_DEVICE=cpu"
+Environment="ASR_COMPUTE_TYPE=int8"
+Environment="ASR_HOST=0.0.0.0"
+Environment="ASR_PORT=8001"
+
+[Install]
+WantedBy=default.target

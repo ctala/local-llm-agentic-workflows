@@ -23,7 +23,7 @@ A practical guide, reproducible benchmark results and ready-to-run Docker recipe
 
 This repository answers one question: **what is the best way to run local large language models on memory-rich edge devices?** It compares production inference engines (**vLLM** and **TensorRT-LLM**), quantization formats (**NVFP4/Marlin**, **FP8 KV cache**, **BF16**) and model families (**Gemma 4**, **Qwen 3.6**, **NVIDIA Nemotron 3**), measuring real decode throughput, memory footprint and stability for local AI deployment.
 
-Use cases covered include local chatbots, coding assistants, agentic workflows with **Hermes** and **OpenClaw**, Open WebUI, n8n, multi-turn tool calling and multimodal agents on the DGX Spark and similar edge AI workstations.
+Use cases covered include local chatbots, coding assistants, agentic workflows with **Hermes** and **OpenClaw**, Open WebUI, n8n, multi-turn tool calling, multimodal agents and local speech-to-text (ASR) on the DGX Spark and similar edge AI workstations.
 
 If you are looking for broader cloud-vs-local model comparisons, see the related benchmark projects by [Cristian Tala](https://github.com/ctala) listed at the end of this guide.
 
@@ -159,7 +159,7 @@ Most public benchmarks focus on **raw capability** using llama.cpp GGUF quantiza
 - **Memory management**: how to fit 30B–120B parameter models into 128 GB unified memory.
 - **Stability**: which model + engine combinations actually load and serve reliably on GB10-class hardware.
 - **Throughput**: real decode tok/s measured with a reproducible OpenAI-compatible benchmark.
-- **Agent integration**: tested connectivity with Hermes, OpenClaw, Opencode, Open WebUI, n8n and LiteLLM.
+- **Agent integration**: tested connectivity with Hermes, OpenClaw, Opencode, Open WebUI, n8n and LiteLLM, plus a local faster-whisper ASR server for voice messages.
 
 The recipes are designed to be copy-pasteable into a DGX Spark, GB10 or any 96–128 GB edge AI workstation.
 
@@ -257,6 +257,7 @@ See [Agents](/local-llm-agentic-workflows/agents/) for the full integration guid
 - **Opencode** — direct and via LiteLLM
 - **LiteLLM proxy** — unified endpoint on `http://0.0.0.0:4000/v1`
 - **Network access** — using the Spark from other machines
+- **Local ASR** — faster-whisper server for voice message transcription
 - **Troubleshooting**
 
 Quick start for Hermes:

@@ -536,6 +536,56 @@ For agentic work that benefits from reasoning, use the `*-vllm` variant. For fas
 
 ---
 
+## Local speech-to-text (ASR)
+
+Hermes can transcribe incoming voice messages locally using the OpenAI-compatible ASR server in [`asr-server/`](https://github.com/ctala/local-llm-agentic-workflows/tree/main/asr-server). It runs **faster-whisper** on the Spark's CPU and exposes `/v1/audio/transcriptions` on port `8001`.
+
+### Start the ASR server
+
+```bash
+cd asr-server
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+./run.sh
+```
+
+Or run it as a systemd user service:
+
+```bash
+cp asr-server/local-asr-server.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now local-asr-server.service
+```
+
+### Configure Hermes STT
+
+Add this to `~/.hermes/config.yaml`:
+
+```yaml
+stt:
+  enabled: true
+  provider: openai
+  openai:
+    model: whisper-1
+    base_url: http://localhost:8001/v1
+    api_key: sk-local-asr
+```
+
+When a voice message arrives through a connected platform (Telegram, WhatsApp, etc.), Hermes sends it to this endpoint and receives the transcript without using a cloud STT service.
+
+### Test the endpoint
+
+```bash
+curl -s -X POST http://localhost:8001/v1/audio/transcriptions \
+  -H "Authorization: Bearer sk-local-asr" \
+  -F file=@/path/to/audio.wav \
+  -F model=whisper-1 \
+  -F response_format=text
+```
+
+---
+
 ## Troubleshooting
 
 ### "Connection refused" from the agent
