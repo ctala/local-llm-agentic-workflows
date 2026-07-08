@@ -598,13 +598,106 @@ curl -s -X POST http://localhost:8001/v1/audio/transcriptions \
 
 ---
 
+## Self-hosted web search with SearXNG
+
+Hermes can use a local **[SearXNG](https://github.com/searxng/searxng)** instance as its web search backend, so you don't need Firecrawl, Tavily or any cloud search API to browse the web.
+
+### Install SearXNG
+
+Create `~/searxng/docker-compose.yml`:
+
+```yaml
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      - SEARXNG_SETTINGS_PATH=/etc/searxng/settings.yml
+```
+
+Create `~/searxng/settings.yml`:
+
+```yaml
+use_default_settings: true
+server:
+  secret_key: "54986978f2ef1e54e3486ac7011af8eb"
+  bind_address: "0.0.0.0"
+search:
+  formats:
+    - html
+    - json
+```
+
+> Generate a fresh secret key with `openssl rand -hex 32`.
+
+Start it:
+
+```bash
+cd ~/searxng
+docker compose up -d
+```
+
+Or use the systemd user service:
+
+```bash
+cp /home/ctala/.config/systemd/user/searxng.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now searxng.service
+```
+
+### Configure Hermes
+
+Add to `~/.hermes/.env`:
+
+```bash
+SEARXNG_URL=http://localhost:8080
+```
+
+And set the search backend in `~/.hermes/config.yaml`:
+
+```yaml
+web:
+  backend: firecrawl
+  search_backend: searxng
+  extract_backend: ''
+  use_gateway: false
+```
+
+Restart the gateway:
+
+```bash
+systemctl --user restart hermes-gateway.service
+```
+
+### Test the search endpoint
+
+```bash
+curl -s 'http://localhost:8080/search?q=NVIDIA+DGX+Spark&format=json' | jq '.results[:3]'
+```
+
+From Hermes, just ask it to search the web:
+
+```bash
+hermes chat -z "busca en la web: NVIDIA DGX Spark precio"
+```
+
+SearXNG aggregates results from multiple engines (DuckDuckGo, Brave, etc.) without sending your queries to a single commercial provider.
+
+---
+
 ## Troubleshooting
 
 ### "Connection refused" from the agent
 
 - Verify the vLLM container is healthy: `curl http://localhost:8000/health`
 - Verify LiteLLM is running (if using the proxy): `curl http://localhost:4000/v1/models`
-- Check that nothing else is bound to port 8000 or 4000.
+- Verify SearXNG is running: `curl http://localhost:8080/healthz`
+- Check that nothing else is bound to port 8000, 4000 or 8080.
 
 ### Context length shows 131,072 instead of 262,144 in Hermes
 
