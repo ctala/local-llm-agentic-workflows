@@ -1,0 +1,12 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { Content, frontmatter } from '../content/pages/STACK.md';
+
+const title = frontmatter.title || 'Fully Local Agent Stack for DGX Spark';
+const description = frontmatter.description || 'Complete self-hosted stack for running autonomous agents locally on NVIDIA DGX Spark.';
+const keywords = frontmatter.keywords || [];
+---
+
+<Layout title={title} description={description} keywords={keywords} type="article">
+  <Content />
+</Layout>

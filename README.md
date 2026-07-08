@@ -9,6 +9,7 @@ A practical guide, reproducible benchmarks and ready-to-run Docker recipes for r
 - [Results](https://ctala.github.io/local-llm-agentic-workflows/results/)
 - [Setup guide](https://ctala.github.io/local-llm-agentic-workflows/setup/)
 - [Agent integration (Hermes / OpenClaw / Opencode)](https://ctala.github.io/local-llm-agentic-workflows/agents/)
+- [Full local stack](https://ctala.github.io/local-llm-agentic-workflows/stack/)
 
 ## What this covers
 

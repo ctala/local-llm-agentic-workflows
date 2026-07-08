@@ -41,6 +41,7 @@ If you are looking for broader cloud-vs-local model comparisons, see the related
 - [Recommended models by use case](#recommended-models-by-use-case)
 - [Parallel long-context sessions with Qwen 3.6](#parallel-long-context-sessions-with-qwen-3-6-35b-a3b)
 - [Connecting to agent frameworks](#connecting-to-agent-frameworks)
+- [Full local stack](#full-local-stack)
 - [Important memory lesson](#important-memory-lesson-for-128-gb-unified-memory-systems)
 - [Author and related benchmarks](#author-and-related-benchmarks)
 - [License](#license)
@@ -165,6 +166,12 @@ The recipes are designed to be copy-pasteable into a DGX Spark, GB10 or any 96�
 
 ---
 
+## Full local stack
+
+For a complete self-hosted agent setup on the DGX Spark — inference, proxy, agent, search and speech-to-text — see the [Stack](/local-llm-agentic-workflows/stack/) page. It documents every service, port, systemd unit and the typical workflow to keep everything local.
+
+---
+
 ## Important memory lesson for 128 GB unified-memory systems
 
 Before launching large models, stop background services that consume VRAM. During our tests, two `llama-server` instances running Qwen GGUF models were using ~76 GB of unified memory and caused vLLM to OOM/hang the system. We disabled the systemd units to prevent automatic restart:
@@ -258,6 +265,7 @@ See [Agents](/local-llm-agentic-workflows/agents/) for the full integration guid
 - **LiteLLM proxy** — unified endpoint on `http://0.0.0.0:4000/v1`
 - **Network access** — using the Spark from other machines
 - **Local ASR** — faster-whisper server for voice message transcription
+- **Local web search** — SearXNG self-hosted meta-search
 - **Troubleshooting**
 
 Quick start for Hermes:
