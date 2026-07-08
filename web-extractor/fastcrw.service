@@ -1,0 +1,17 @@
+[Unit]
+Description=fastCRW local web extractor (Firecrawl-compatible)
+Documentation=https://github.com/us/crw
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/Playground/local-llm-agentic-workflows/web-extractor
+ExecStart=%h/Playground/local-llm-agentic-workflows/web-extractor/run.sh
+ExecStop=/usr/bin/docker compose down
+Environment="CRW_API_KEY=local"
+Environment="CRW_SEARCH__SEARXNG_URL=http://searxng:8080"
+
+[Install]
+WantedBy=default.target

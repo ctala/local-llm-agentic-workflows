@@ -1,0 +1,26 @@
+services:
+  fastcrw:
+    image: ghcr.io/us/crw:latest
+    container_name: fastcrw
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      # Self-hosted local use; set a real key if exposing to LAN
+      - CRW_API_KEY=${CRW_API_KEY:-local}
+      # Reach the existing SearXNG container by service name on its compose network
+      # Note: double underscore denotes nested TOML key (search.searxng_url)
+      - CRW_SEARCH__SEARXNG_URL=${CRW_SEARCH__SEARXNG_URL:-http://searxng:8080}
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+    networks:
+      - searxng_default
+
+networks:
+  searxng_default:
+    external: true

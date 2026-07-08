@@ -44,11 +44,11 @@ Every service below runs on the Spark itself or is reachable from other machines
 └─────────────────────────────────────────────────────────────┘
 
 Auxiliary services:
-┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-│  SearXNG         │  │  faster-whisper  │  │  Browser / file  │
-│  local search    │  │  ASR server      │  │  tools           │
-│  port 8080       │  │  port 8001       │  │  (optional)      │
-└──────────────────┘  └──────────────────┘  └──────────────────┘
+┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
+│  SearXNG         │  │  faster-whisper  │  │  fastCRW         │  │  Browser / file  │
+│  local search    │  │  ASR server      │  │  web extract     │  │  tools           │
+│  port 8080       │  │  port 8001       │  │  port 3000       │  │  (optional)      │
+└──────────────────┘  └──────────────────┘  └──────────────────┘  └──────────────────┘
 ```
 
 ---
@@ -132,6 +132,46 @@ Local speech-to-text for voice messages received via Telegram/WhatsApp/etc.
 
 ---
 
+### 6. fastCRW local web extractor
+
+Firecrawl-compatible web scraper and crawler. It gives Hermes the ability to extract clean markdown from URLs without calling cloud APIs.
+
+| Property | Value |
+|----------|-------|
+| **URL** | `http://localhost:3000` |
+| **Image** | `ghcr.io/us/crw:latest` |
+| **API** | Firecrawl-compatible (`/v1/scrape`, `/v1/crawl`, `/v1/search`) |
+| **RAM** | ~15–50 MB idle; ~200 MB peak |
+| **JS rendering** | LightPanda fallback (no Chromium baseline) |
+| **Search backend** | Existing SearXNG container (`http://searxng:8080`) |
+| **Config in Hermes** | `web.extract_backend: firecrawl`, `FIRECRAWL_API_URL=http://localhost:3000` |
+| **Compose** | `web-extractor/docker-compose.yml` |
+| **Service** | `fastcrw.service` |
+
+Start it:
+
+```bash
+cd web-extractor
+./run.sh
+```
+
+Or with systemd:
+
+```bash
+systemctl --user enable --now fastcrw.service
+```
+
+Test scrape:
+
+```bash
+curl -X POST http://localhost:3000/v1/scrape \
+  -H "Authorization: Bearer local" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com","formats":["markdown"]}'
+```
+
+---
+
 ## Ports summary
 
 | Service | Port | Reachable from LAN |
@@ -141,6 +181,7 @@ Local speech-to-text for voice messages received via Telegram/WhatsApp/etc.
 | Hermes gateway | varies | Via Telegram/Discord/etc. |
 | SearXNG | 8080 | No (localhost only) |
 | ASR server | 8001 | No (localhost only) |
+| fastCRW | 3000 | No (localhost only) |
 
 Only LiteLLM is exposed to the LAN by design. The other services are consumed locally by Hermes or through LiteLLM.
 
@@ -155,6 +196,7 @@ systemctl --user enable --now litellm-proxy.service
 systemctl --user enable --now hermes-gateway.service
 systemctl --user enable --now local-asr-server.service
 systemctl --user enable --now searxng.service
+systemctl --user enable --now fastcrw.service
 ```
 
 Check status:
@@ -164,6 +206,7 @@ systemctl --user status litellm-proxy.service
 systemctl --user status hermes-gateway.service
 systemctl --user status local-asr-server.service
 systemctl --user status searxng.service
+systemctl --user status fastcrw.service
 ```
 
 ---
@@ -191,4 +234,4 @@ With this stack, the only external calls are:
 - Telegram/Discord/WhatsApp message servers (if you use those platforms).
 - Optional cloud fallbacks configured in LiteLLM (MiniMax, etc.).
 
-Inference, search and speech-to-text are fully local.
+Inference, search, speech-to-text and web extraction are fully local.

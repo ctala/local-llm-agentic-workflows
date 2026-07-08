@@ -690,6 +690,92 @@ SearXNG aggregates results from multiple engines (DuckDuckGo, Brave, etc.) witho
 
 ---
 
+## Self-hosted web extraction with fastCRW
+
+Hermes can extract clean markdown from URLs using a local **[fastCRW](https://github.com/us/crw)** instance. fastCRW exposes a Firecrawl-compatible API (`/v1/scrape`, `/v1/crawl`, `/v1/search`) and uses only ~15–50 MB of RAM, making it ideal for the Spark.
+
+### Why fastCRW instead of Firecrawl self-hosted?
+
+| | fastCRW | Firecrawl self-hosted |
+|---|---|---|
+| **Idle RAM** | ~15–50 MB | ~1–2 GB |
+| **Peak RAM** | ~200 MB | **8–14 GB** |
+| **Extra infra** | None | Redis + Postgres + RabbitMQ + Playwright |
+| **API** | Firecrawl-compatible | Native Firecrawl |
+| **JS rendering** | LightPanda fallback | Playwright/Chromium |
+
+Firecrawl self-hosted is a better fit for a dedicated scraping server. On the Spark, where every gigabyte counts for LLM KV cache, fastCRW is the pragmatic choice.
+
+### Install fastCRW
+
+The service is in the repo:
+
+```bash
+cd web-extractor
+./run.sh
+```
+
+Or install the systemd user service:
+
+```bash
+cp web-extractor/fastcrw.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now fastcrw.service
+```
+
+This connects fastCRW to the existing SearXNG container on its Docker network (`searxng_default`) so `/v1/search` works through SearXNG.
+
+### Configure Hermes
+
+Add to `~/.hermes/.env`:
+
+```bash
+FIRECRAWL_API_URL=http://localhost:3000
+FIRECRAWL_API_KEY=local
+```
+
+And set the extraction backend in `~/.hermes/config.yaml`:
+
+```yaml
+web:
+  backend: firecrawl
+  search_backend: searxng
+  extract_backend: firecrawl
+  use_gateway: false
+```
+
+Restart the gateway:
+
+```bash
+systemctl --user restart hermes-gateway.service
+```
+
+### Test the extraction endpoint
+
+```bash
+curl -s -X POST http://localhost:3000/v1/scrape \
+  -H "Authorization: Bearer local" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com","formats":["markdown"]}' | jq '.data.markdown'
+```
+
+### Use from Hermes
+
+Once configured, Hermes' `web_search` and `web_extract` tools will route through local services:
+
+- Search → SearXNG (`http://localhost:8080`)
+- Extract / crawl → fastCRW (`http://localhost:3000`)
+
+Example:
+
+```bash
+hermes chat -z "busca en la web últimas noticias de NVIDIA y resume la primera página"
+```
+
+Everything stays on the Spark.
+
+---
+
 ## Troubleshooting
 
 ### "Connection refused" from the agent
@@ -697,7 +783,8 @@ SearXNG aggregates results from multiple engines (DuckDuckGo, Brave, etc.) witho
 - Verify the vLLM container is healthy: `curl http://localhost:8000/health`
 - Verify LiteLLM is running (if using the proxy): `curl http://localhost:4000/v1/models`
 - Verify SearXNG is running: `curl http://localhost:8080/healthz`
-- Check that nothing else is bound to port 8000, 4000 or 8080.
+- Verify fastCRW is running: `curl http://localhost:3000/health`
+- Check that nothing else is bound to port 8000, 4000, 8080 or 3000.
 
 ### Context length shows 131,072 instead of 262,144 in Hermes
 

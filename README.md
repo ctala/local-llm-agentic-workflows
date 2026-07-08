@@ -19,6 +19,7 @@ A practical guide, reproducible benchmarks and ready-to-run Docker recipes for r
 - **Agent frameworks**: Hermes, OpenClaw, Opencode, LiteLLM, Open WebUI.
 - **Use cases**: chatbots, coding assistants, multi-turn tool calling and multimodal agents.
 - **Local ASR**: faster-whisper server for transcribing voice messages on the Spark.
+- **Local web extraction**: fastCRW (Firecrawl-compatible) for scraping URLs without cloud APIs.
 
 See the live site for the full guide, benchmark tables and copy-paste launch scripts.
 
