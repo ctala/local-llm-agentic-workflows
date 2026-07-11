@@ -63,10 +63,10 @@ Serves the active LLM with an OpenAI-compatible API.
 |----------|-------|
 | **URL** | `http://localhost:8000/v1` |
 | **Default model** | `qwen3.6-35b-a3b` |
-| **Container** | `vllm/vllm-openai` (cu130, ARM64) |
-| **Launch script** | `scripts/run-qwen36-35b-a3b-extreme-context-2seq.sh` |
+| **Container** | `vllm/vllm-openai:nightly` (ARM64) |
+| **Launch script** | `scripts/run-qwen36-35b-a3b.sh` |
 | **Max context** | 262,144 tokens |
-| **Tool calling** | `--tool-call-parser qwen3_xml` |
+| **Tool calling** | `--tool-call-parser qwen3_coder` |
 
 Switch models by running a different launch script and updating LiteLLM/Hermes.
 
@@ -192,6 +192,7 @@ Only LiteLLM is exposed to the LAN by design. The other services are consumed lo
 Enable/start everything after boot:
 
 ```bash
+systemctl --user enable --now qwen36-vllm.service
 systemctl --user enable --now litellm-proxy.service
 systemctl --user enable --now hermes-gateway.service
 systemctl --user enable --now local-asr-server.service
@@ -202,6 +203,7 @@ systemctl --user enable --now fastcrw.service
 Check status:
 
 ```bash
+systemctl --user status qwen36-vllm.service
 systemctl --user status litellm-proxy.service
 systemctl --user status hermes-gateway.service
 systemctl --user status local-asr-server.service
@@ -215,7 +217,11 @@ systemctl --user status fastcrw.service
 
 1. Start the LLM:
    ```bash
-   ./scripts/run-qwen36-35b-a3b-extreme-context-2seq.sh
+   ./scripts/run-qwen36-35b-a3b.sh
+   ```
+   Or use the systemd service so it starts automatically on login:
+   ```bash
+   systemctl --user enable --now qwen36-vllm.service
    ```
 2. Verify LiteLLM and SearXNG are running.
 3. Launch Hermes:

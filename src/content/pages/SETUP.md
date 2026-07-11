@@ -88,18 +88,21 @@ Not a candidate for 50 tok/s due to being dense and memory-bandwidth bound.
 ### Qwen 3.6 35B-A3B
 
 Models tested:
-- `nvidia/Qwen3.6-35B-A3B-NVFP4` → failed with `KeyError: 'layers.0.mlp.experts.w2_input_scale'`.
-- `RedHatAI/Qwen3.6-35B-A3B-NVFP4` → **works**.
+- `nvidia/Qwen3.6-35B-A3B-NVFP4` → **works with vLLM nightly** (current recommendation).
+- `RedHatAI/Qwen3.6-35B-A3B-NVFP4` → works with `vllm/vllm-openai:gemma4-0505-cu130` (stable fallback).
 
-Container: `vllm/vllm-openai:gemma4-0505-cu130`
+Containers:
+- `vllm/vllm-openai:nightly@sha256:a671d5fcda70fe9ac6f245f9780821de459fb4ee22c018fd07a0f10a55279bf9` for the nvidia checkpoint.
+- `vllm/vllm-openai:gemma4-0505-cu130` for the RedHatAI checkpoint.
 
-| Configuration | Decode tok/s | Hot TTFT | Notes |
-|---------------|--------------|----------|-------|
-| Base (`compressed-tensors` + `marlin`) | **~42.2** | ~0.10 s | Very stable, tool calling enabled |
-| max-seqs 4, batched 8192, gpu_util 0.92 | ~42.2 | ~1.4 s | No real improvement |
-| n-gram speculative (`num_spec_tokens=5`) | ~34–37 | ~0.10 s | Worse for non-repetitive text |
-| MTP (`qwen3_5_mtp`) | Error | – | Non-quantized drafter does not support `moe_backend='marlin'` |
-| TRT-LLM 1.3.0rc13 (custom MLP-only NVFP4) | **~34.4** | ~0.09 s | Quantized from BF16 with Model Optimizer 0.44.0 |
+| Configuration | Checkpoint | Container | Decode tok/s | Hot TTFT | Notes |
+|---------------|------------|-----------|--------------|----------|-------|
+| **NVIDIA NVFP4 W4A16 + marlin + flashinfer** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~75–77** | ~0.10 s | **Current recommendation.** `modelopt` W4A16, `qwen3_coder` parser, `fastsafetensors`, `async-scheduling`, 262K context. |
+| Base (`compressed-tensors` + `marlin`) | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~42.2 | ~0.10 s | Stable fallback, tool calling enabled |
+| max-seqs 4, batched 8192, gpu_util 0.92 | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~42.2 | ~1.4 s | No real improvement |
+| n-gram speculative (`num_spec_tokens=5`) | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~34–37 | ~0.10 s | Worse for non-repetitive text |
+| MTP (`qwen3_5_mtp`) | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | Error | – | Non-quantized drafter does not support `moe_backend='marlin'` |
+| TRT-LLM 1.3.0rc13 (custom MLP-only NVFP4) | Quantized from BF16 | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~34.4** | ~0.09 s | Quantized from BF16 with Model Optimizer 0.44.0 |
 
 ### NVIDIA Nemotron 3
 
@@ -176,8 +179,9 @@ Benchmark: ~34.4 decode tok/s, hot TTFT ~0.09 s, ~41 GB unified memory.
 
 | Model | Checkpoint | Container | Decode tok/s | Recommended use |
 |-------|------------|-----------|--------------|-----------------|
+| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~75–77** | **Best quality/speed balance; full 262K context; tool calling.** |
 | **Gemma 4 26B-A4B** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + patch | `vllm/vllm-openai:gemma4-cu130` | **~49.5** | Maximum speed for agents |
-| **Qwen 3.6 35B-A3B** | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~42.2** | Best quality/speed balance |
+| **Qwen 3.6 35B-A3B** | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~42.2** | Stable fallback |
 | **Gemma 4 31B** | `nvidia/Gemma-4-31B-IT-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~6.7** | Only if dense model is needed |
 | **Qwen 3.6 35B-A3B** | Custom MLP-only NVFP4 | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~34.4** | Official NVIDIA stack alternative |
 | **Nemotron-3-Nano-30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~28.8** | Official NVIDIA dense model; uses almost all memory |
@@ -191,7 +195,7 @@ Benchmark: ~34.4 decode tok/s, hot TTFT ~0.09 s, ~41 GB unified memory.
 - **HF_TOKEN required** to download Gemma/Qwen checkpoints from HuggingFace.
 - **Memory**: Gemma 4 26B-A4B NVFP4 uses ~18 GB at load; FP8 KV cache leaves ~82 GB available.
 - **Marlin backend** is mandatory on GB10 for MoE NVFP4. Native FP4 backends may fail or produce NaN on sm_121.
-- **Tool calling**: Qwen 3.6 requires `--enable-auto-tool-choice --tool-call-parser qwen3_xml --reasoning-parser qwen3`; without `qwen3_xml`, vLLM returns XML in `content` and agent frameworks receive an empty `tool_calls` array.
+- **Tool calling**: Qwen 3.6 requires `--enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3`; the `qwen3_coder` parser is more robust for multi-turn than the older `qwen3_xml`. Without a parser, vLLM returns XML in `content` and agent frameworks receive an empty `tool_calls` array.
 - **TRT-LLM with Nemotron 3**: official checkpoints load directly with `trtllm-serve --backend pytorch --kv_cache_dtype fp8`.
 - **vLLM with Nemotron 3**: Nano BF16 and Omni NVFP4 work. Super 120B-A12B does not due to aggressive memory reservation in the V1 engine.
 - **Background services**: stop `llama-server` and other GPU consumers before launching large models.
@@ -214,11 +218,10 @@ Benchmark: ~34.4 decode tok/s, hot TTFT ~0.09 s, ~41 GB unified memory.
 
 ## Next steps
 
-1. Investigate MTP for Qwen 3.6 with a newer container or a compatible drafter configuration.
+1. Validate MTP speculative decoding with the nvidia checkpoint + vLLM nightly (earlier tests on RedHatAI slowed decode single-user).
 2. Test `--tool-call-parser gemma4` for native Gemma 4 tool calling.
 3. Evaluate agentic quality with `tool-eval-bench` for Hermes/OpenClaw.
-4. Set up LiteLLM as a proxy to expose multiple models on different ports.
-5. Test full NVFP4 Qwen 3.6 on TRT-LLM when linear-attention scales are supported.
-6. Compare Qwen 3.6 custom MLP-only NVFP4 quality against RedHatAI `compressed-tensors`.
-7. Test GPT-OSS with TRT-LLM.
-8. Test GGUF and MTP variants of Qwen 3.6 to compare quality vs speed trade-offs.
+4. Test full NVFP4 Qwen 3.6 on TRT-LLM when linear-attention scales are supported.
+5. Compare Qwen 3.6 nvidia W4A16 quality against RedHatAI `compressed-tensors` and custom MLP-only NVFP4.
+6. Test GPT-OSS with TRT-LLM.
+7. Test GGUF and MTP variants of Qwen 3.6 to compare quality vs speed trade-offs.

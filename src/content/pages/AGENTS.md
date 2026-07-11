@@ -476,11 +476,11 @@ When serving Qwen 3.6 with vLLM, add these flags:
 
 ```bash
 --enable-auto-tool-choice \
---tool-call-parser qwen3_xml \
+--tool-call-parser qwen3_coder \
 --reasoning-parser qwen3
 ```
 
-All Qwen 3.6 launch scripts in this repo already include them. Without `--tool-call-parser qwen3_xml`, vLLM returns XML such as:
+All Qwen 3.6 launch scripts in this repo already include them. The `qwen3_coder` parser is more robust for multi-turn tool calling than the older `qwen3_xml` parser. Without a parser, vLLM returns XML such as:
 
 ```xml
 <tool_call>\n<name>get_weather</name>\n<arguments>{"location":"Paris"}</arguments>\n</tool_call>
@@ -520,19 +520,19 @@ If the result is `null`, check that the parser flags are present in the launch s
 
 ## Long-context launch scripts
 
-For agentic workloads on the Spark, Qwen 3.6 35B-A3B is served at its maximum context length (262,144 tokens). The trade-off is how many of those long conversations can run in parallel:
+For agentic workloads on the Spark, Qwen 3.6 35B-A3B is served at its maximum context length (262,144 tokens) using the nvidia checkpoint and vLLM nightly. The recommended default uses 2 parallel sequences:
 
 | Script | `max_num_seqs` | `gpu-memory-utilization` | KV cache (full) | Use case |
 |--------|---------------|--------------------------|-----------------|----------|
-| `run-qwen36-35b-a3b-extreme-context-2seq.sh` | 2 | 0.95 | ~20 GB | **Recommended.** Two 262K sessions in parallel with headroom for LiteLLM/ASR. |
-| `run-qwen36-35b-a3b-extreme-context-3seq.sh` | 3 | 0.94 | ~30 GB | Maximum concurrency, but tight on memory. Use only when vLLM is the only heavy service. |
+| `run-qwen36-35b-a3b.sh` | 2 | 0.92 | ~82 GB | **Recommended.** Two 262K sessions in parallel with headroom for LiteLLM/ASR. |
+| `run-qwen36-35b-a3b-extreme-context-2seq.sh` | 2 | 0.92 | ~82 GB | Alias to the script above for discoverability. |
 
-The 2-sequence config is the best default for Hermes/OpenClaw because it leaves breathing room for auxiliary services without sacrificing much total context (524K tokens across both sessions). The 3-sequence config pushes the Spark close to its limit and is more likely to OOM if another service starts.
+The 2-sequence config is the best default for Hermes/OpenClaw because it leaves breathing room for auxiliary services without sacrificing much total context (524K tokens across both sessions).
 
 Start the recommended config:
 
 ```bash
-./scripts/run-qwen36-35b-a3b-extreme-context-2seq.sh
+./scripts/run-qwen36-35b-a3b.sh
 ```
 
 ## Choosing the right model alias

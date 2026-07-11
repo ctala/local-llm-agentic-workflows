@@ -34,7 +34,8 @@ Text benchmarks used a ~120-token Spanish prompt, `max_tokens=512`, temperature 
 | **Gemma 4 26B-A4B IT** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + `gemma4_patched.py` | `vllm/vllm-openai:gemma4-cu130` | **~49.5** | ~0.08 s | ~22 GB | Best speed for agents. Requires community patch. |
 | Gemma 4 26B-A4B IT (official) | `nvidia/Gemma-4-26B-A4B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~30.1 | ~0.20 s | ~21 GB | Works without patch, but ~20 tok/s slower. |
 | **Gemma 4 31B IT** | `nvidia/Gemma-4-31B-IT-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~6.7** | ~1.8 s | ~31 GB | Dense, memory-bandwidth limited. Not recommended for fast interaction. |
-| **Qwen 3.6 35B-A3B** | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~42.2** | ~0.10 s | ~22 GB | `compressed-tensors` format. Very stable. |
+| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~75–77** | ~0.10 s | ~22 GB | **Current recommended.** W4A16 NVFP4 (`modelopt`), `qwen3_coder` parser, 262K context. |
+| Qwen 3.6 35B-A3B | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~42.2 | ~0.10 s | ~22 GB | `compressed-tensors` format. Stable previous checkpoint. |
 | Qwen 3.6 35B-A3B (n-gram speculative) | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~34–37 | ~0.10 s | ~22 GB | Worse for non-repetitive text. |
 | Qwen 3.6 35B-A3B (MTP) | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | Load error | – | – | `moe_backend='marlin'` not supported by the non-quantized drafter. |
 | Gemma 4 26B-A4B on TRT-LLM 1.3.0rc13 | `nvidia/Gemma-4-26B-A4B-NVFP4` | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | Load error | – | – | Transformers in container does not recognize `model_type: gemma4`. |
@@ -48,10 +49,11 @@ Text benchmarks used a ~120-token Spanish prompt, `max_tokens=512`, temperature 
 
 ### Key takeaways
 
+- **For best quality/speed balance (~75–77 tok/s)**: use **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly**. Also supports the model's full 262K context window and robust tool calling.
 - **For maximum speed (~50 tok/s)**: use **Gemma 4 26B-A4B community + patch**.
-- **For best quality/speed balance (~42 tok/s)**: use **Qwen 3.6 35B-A3B RedHatAI**.
+- **Qwen 3.6 35B-A3B RedHatAI** (~42 tok/s) remains a stable fallback if the nvidia checkpoint or nightly image are unavailable.
 - **Gemma 4 31B dense** is not viable for fast interactive use on GB10 (~7 tok/s).
-- **TensorRT-LLM** works for Qwen 3.6 if you manually quantize the base BF16 model to **NVFP4 MLP-only** (~34 tok/s), but it is slower than vLLM with RedHatAI.
+- **TensorRT-LLM** works for Qwen 3.6 if you manually quantize the base BF16 model to **NVFP4 MLP-only** (~34 tok/s), but it is slower than vLLM with the nvidia checkpoint.
 - **Speculative decoding** did not help on general prompts; it may only help for very repetitive text or with a compatible MTP drafter.
 - **Nemotron-3-Nano-Omni** runs at ~40 tok/s on vLLM and **processes images**. Audio failed due to container decoding issues, not the model itself.
 - **Nemotron-3-Super-120B-A12B** is only stable with **TensorRT-LLM**. vLLM fails with `CUDA OOM` or hangs the system. See detailed analysis below.
@@ -113,20 +115,29 @@ TRT-LLM reserves a fixed memory budget (model + KV cache for the given seq_len/b
 
 ## Extreme context scaling: Qwen 3.6 35B-A3B
 
-For agentic workflows that ingest very long contexts (codebases, conversation history, RAG dumps, multi-turn agent traces) we tested how far `Qwen3.6-35B-A3B-NVFP4` can scale on the DGX Spark. We used vLLM with:
+For agentic workflows that ingest very long contexts (codebases, conversation history, RAG dumps, multi-turn agent traces) we tested how far `nvidia/Qwen3.6-35B-A3B-NVFP4` can scale on the DGX Spark. We used vLLM nightly with:
 
 ```bash
+--model /models/qwen3.6 \
+--trust-remote-code \
+--tensor-parallel-size 1 \
+--attention-backend flashinfer \
+--moe-backend marlin \
+--kv-cache-dtype fp8 \
+--gpu-memory-utilization 0.92 \
 --max-model-len 262144 \
 --max-num-seqs 2 \
 --max-num-batched-tokens 32768 \
---kv-cache-dtype fp8 \
---gpu-memory-utilization 0.95 \
+--enable-chunked-prefill \
+--async-scheduling \
+--enable-prefix-caching \
+--load-format fastsafetensors \
 --enable-auto-tool-choice \
---tool-call-parser qwen3_xml \
+--tool-call-parser qwen3_coder \
 --reasoning-parser qwen3
 ```
 
-`--max-num-seqs 3` loads with `gpu-memory-utilization 0.94` and was the original stable configuration, but it leaves only ~1–2 GB of free unified memory and makes the system vulnerable to memory spikes. The **2-session configuration is now the recommended default** because it leaves headroom for LiteLLM, ASR and other auxiliary services while still supporting two 262K sessions in parallel.
+The **2-session configuration is the recommended default** because it leaves headroom for LiteLLM, ASR and other auxiliary services while still supporting two 262K sessions in parallel. We previously tested a 3-session config with the older RedHatAI checkpoint, but it left only ~1–2 GB of free unified memory and made the system vulnerable to memory spikes; it has not been re-validated with the newer nvidia checkpoint + vLLM nightly.
 
 ### Single-sequence context scaling
 
@@ -169,13 +180,12 @@ Ready-to-run recipes are in [`scripts/`](scripts/):
 | Script | Model / framework |
 |--------|-------------------|
 | `scripts/run-gemma4-26b-a4b.sh` | Gemma 4 26B-A4B IT NVFP4 community patch on vLLM |
-| `scripts/run-qwen36-35b-a3b.sh` | Qwen 3.6 35B-A3B NVFP4 on vLLM |
+| `scripts/run-qwen36-35b-a3b.sh` | **Qwen 3.6 35B-A3B nvidia NVFP4 on vLLM nightly (recommended, 262K context)** |
+| `scripts/run-qwen36-35b-a3b-extreme-context-2seq.sh` | Alias to `run-qwen36-35b-a3b.sh` (262K × 2 sessions) |
 | `scripts/run-qwen36-35b-a3b-trtllm.sh` | Qwen 3.6 35B-A3B custom MLP-only NVFP4 on TRT-LLM |
 | `scripts/run-gemma4-31b.sh` | Gemma 4 31B IT NVFP4 on vLLM |
 | `scripts/run-nemotron3-nano-30b-a3b-trtllm.sh` | Nemotron-3 Nano BF16 on TRT-LLM |
 | `scripts/run-nemotron3-nano-30b-a3b-vllm.sh` | Nemotron-3 Nano BF16 on vLLM |
-| `scripts/run-qwen36-35b-a3b-extreme-context-2seq.sh` | Qwen 3.6 35B-A3B with 262K context × 2 sessions on vLLM (recommended) |
-| `scripts/run-qwen36-35b-a3b-extreme-context-3seq.sh` | Qwen 3.6 35B-A3B with 262K context × 3 sessions on vLLM (tight memory) |
 | `scripts/run-nemotron3-super-120b-a12b-trtllm.sh` | Nemotron-3 Super NVFP4 on TRT-LLM |
 | `scripts/run-nemotron3-nano-omni-vllm.sh` | Nemotron-3 Nano Omni NVFP4 multimodal on vLLM |
 
@@ -193,7 +203,7 @@ python3 benchmarks/bench_model.py gemma-4-26b-a4b 512
 2. **Marlin is required for MoE NVFP4 on GB10**: use `--moe-backend marlin`. Native FP4 backends (CUTLASS/FlashInfer) may fail or produce NaN on sm_121.
 3. **FP8 KV cache** saves memory but relies on checkpoint scaling factors; vLLM warns about accuracy if they are missing.
 4. **Prefix caching** speeds up requests with shared context or repeated long prompts.
-5. **Tool calling**: Qwen 3.6 requires `--enable-auto-tool-choice --tool-call-parser qwen3_xml --reasoning-parser qwen3`; other parsers return XML in `content` and leave the native `tool_calls` array empty.
+5. **Tool calling**: Qwen 3.6 requires `--enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3` (the `qwen3_coder` parser is more robust for multi-turn than the older `qwen3_xml`); without a parser, vLLM returns XML in `content` and leaves the native `tool_calls` array empty.
 6. **max-num-batched-tokens**: for multimodal input (Gemma 4), must be >= `max_tokens_per_mm_item` (e.g. 2496 for Gemma 4, 4096 by default).
 7. **TensorRT Model Optimizer on GB10**: quantizing Qwen 3.6 from BF16 requires converting the VLM checkpoint to text-only and using total GPU memory (not free memory) because `accelerate` does not understand the 128 GB unified pool.
 8. **TRT-LLM PyTorch backend** reads `hf_quant_config.json`; use `--backend pytorch` and `--kv_cache_dtype fp8` for HF NVFP4 checkpoints.
@@ -205,8 +215,9 @@ python3 benchmarks/bench_model.py gemma-4-26b-a4b 512
 
 For agentic workflows on DGX Spark and similar 96–128 GB edge AI workstations:
 
+- **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** → **~75–77 tok/s**, tool calling with `qwen3_coder`, image/video support, and the model's full **262K context window** with 2 parallel sessions. **This is the current default recommendation.**
 - **Gemma 4 26B-A4B community + patch** → ~49.5 tok/s, tool calling, low VRAM.
-- **Qwen 3.6 35B-A3B RedHatAI** → ~42.2 tok/s, tool calling, image/video support, and **up to 2×262K context sessions** (recommended) or 3×262K with tight memory.
+- **Qwen 3.6 35B-A3B RedHatAI** → ~42.2 tok/s, stable fallback if the nvidia checkpoint or nightly image are unavailable.
 - **Qwen 3.6 35B-A3B MLP-only NVFP4** (custom TRT-LLM) → ~34.4 tok/s if you prefer the official NVIDIA stack.
 - **Nemotron-3-Nano-Omni** → ~40.0 tok/s, text + image, best official multimodal option.
 - **Nemotron-3-Super-120B-A12B** → ~14.7 tok/s with TRT-LLM only, for quality-first workloads.
