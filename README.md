@@ -11,6 +11,19 @@ A practical guide, reproducible benchmarks and ready-to-run Docker recipes for r
 - [Agent integration (Hermes / OpenClaw / Opencode)](https://ctala.github.io/local-llm-agentic-workflows/agents/)
 - [Full local stack](https://ctala.github.io/local-llm-agentic-workflows/stack/)
 
+## Quick answers
+
+| Model | Decode speed | Best for |
+|-------|--------------|----------|
+| **Qwen 3.6 35B-A3B** (nvidia NVFP4, vLLM nightly) | **~75–77 tok/s** | Best quality/speed balance, full 262K context, robust tool calling. |
+| **Gemma 4 26B-A4B IT** (community patch) | **~49.5 tok/s** | Maximum raw speed for agents. |
+| **Nemotron-3-Nano-Omni-30B-A3B** | **~40.0 tok/s** | Official NVIDIA multimodal (text + image). |
+| **Qwen 3.6 35B-A3B** (RedHatAI) | **~42.2 tok/s** | Stable fallback if nvidia checkpoint is unavailable. |
+| **Nemotron-3-Super-120B-A12B** | **~14.7 tok/s** | Quality-first, TRT-LLM only. |
+| **Gemma 4 31B IT** | **~6.7 tok/s** | Dense model, only when quality justifies the speed cost. |
+
+> Full benchmark tables and launch scripts are in the [Results](/local-llm-agentic-workflows/results/) page.
+
 ## What this covers
 
 - **Models**: Gemma 4, Qwen 3.6, NVIDIA Nemotron 3 (Nano, Super, Omni).
