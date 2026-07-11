@@ -108,42 +108,28 @@ docker run -d --name gemma4-26b-a4b \
 ### 3.3 Qwen 3.6 35B-A3B
 
 **Modelos probados**:
-- `nvidia/Qwen3.6-35B-A3B-NVFP4` → falló con `KeyError: 'layers.0.mlp.experts.w2_input_scale'`.
-- `RedHatAI/Qwen3.6-35B-A3B-NVFP4` → **funciona**.
+- `nvidia/Qwen3.6-35B-A3B-NVFP4` → **funciona con vLLM nightly** (recomendación actual).
+- `RedHatAI/Qwen3.6-35B-A3B-NVFP4` → funciona con `vllm/vllm-openai:gemma4-0505-cu130` (fallback estable).
 
-**Contenedor**: `vllm/vllm-openai:gemma4-0505-cu130`
+**Contenedores**:
+- `vllm/vllm-openai:nightly@sha256:a671d5fcda70fe9ac6f245f9780821de459fb4ee22c018fd07a0f10a55279bf9` para el checkpoint nvidia.
+- `vllm/vllm-openai:gemma4-0505-cu130` para el checkpoint RedHatAI.
 
-| Configuración | Decode tok/s | TTFT caliente | Notas |
-|---------------|--------------|---------------|-------|
-| Base (`compressed-tensors` + `marlin`) | **~42.2** | ~0.10s | Muy estable, tool calling activado |
-| max-seqs 4, batched 8192, gpu_util 0.92 | ~42.2 | ~1.4s | Sin mejora real |
-| n-gram speculative (`num_spec_tokens=5`) | ~34–37 | ~0.10s | Empeora para texto no repetitivo |
-| MTP (`qwen3_5_mtp`) | Error | - | Drafter no cuantizado no soporta `moe_backend='marlin'` |
-| TRT-LLM 1.3.0rc13 (MLP-only NVFP4 propio) | **~34.4** | ~0.09s | Cuantizado con Model Optimizer 0.44.0 desde BF16. Ver sección 4. |
+| Configuración | Checkpoint | Contenedor | Decode tok/s | TTFT caliente | Notas |
+|---------------|------------|------------|--------------|---------------|-------|
+| **NVIDIA NVFP4 W4A16 + marlin + flashinfer** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~75–77** | ~0.10s | **Recomendación actual.** `modelopt` W4A16, parser `qwen3_coder`, `fastsafetensors`, `async-scheduling`, 262K contexto. |
+| Base (`compressed-tensors` + `marlin`) | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~42.2 | ~0.10s | Fallback estable, tool calling activado |
+| max-seqs 4, batched 8192, gpu_util 0.92 | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~42.2 | ~1.4s | Sin mejora real |
+| n-gram speculative (`num_spec_tokens=5`) | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~34–37 | ~0.10s | Empeora para texto no repetitivo |
+| MTP (`qwen3_5_mtp`) | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | Error | - | Drafter no cuantizado no soporta `moe_backend='marlin'` |
+| TRT-LLM 1.3.0rc13 (MLP-only NVFP4 propio) | Cuantizado desde BF16 | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~34.4** | ~0.09s | Cuantizado con Model Optimizer 0.44.0 desde BF16. Ver sección 4. |
 
 **Comando recomendado**:
 ```bash
-docker run -d --name qwen36-35b-a3b \
-  --gpus all --ipc host --network host --shm-size 64gb \
-  -v ~/vllm/qwen3.6-35b-a3b-nvfp4-redhat:/models/qwen3.6 \
-  -e HF_HOME=/models \
-  vllm/vllm-openai:gemma4-0505-cu130 \
-    --model /models/qwen3.6 \
-    --served-model-name qwen3.6-35b-a3b \
-    --host 0.0.0.0 --port 8000 \
-    --quantization compressed-tensors \
-    --moe-backend marlin \
-    --kv-cache-dtype fp8 \
-    --max-model-len 32768 \
-    --max-num-seqs 2 \
-    --max-num-batched-tokens 4096 \
-    --gpu-memory-utilization 0.90 \
-    --enable-prefix-caching \
-    --enable-auto-tool-choice \
-    --tool-call-parser qwen3_xml \
-    --reasoning-parser qwen3 \
-    --trust-remote-code
+./scripts/run-qwen36-35b-a3b.sh
 ```
+
+El script usa el checkpoint `nvidia/Qwen3.6-35B-A3B-NVFP4`, vLLM nightly, 262K de contexto, `flashinfer`, `async-scheduling`, `fastsafetensors` y el parser `qwen3_coder` para tool calling.
 
 ### 3.4 NVIDIA Nemotron 3
 
@@ -329,10 +315,11 @@ El formato **full NVFP4** aún no es compatible con TRT-LLM 1.3.0rc13 por la ate
 
 | Modelo | Checkpoint | Contenedor | Decode tok/s | Uso recomendado |
 |--------|------------|------------|--------------|-----------------|
+| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~75–77** | **Mejor calidad-velocidad; contexto máximo 262K; tool calling robusto.** |
 | **Gemma 4 26B-A4B** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + parche | `vllm/vllm-openai:gemma4-cu130` | **~49.5** | Máxima velocidad para agentes |
-| **Qwen 3.6 35B-A3B** | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~42.2** | Mejor calidad-velocidad |
+| **Qwen 3.6 35B-A3B** | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~42.2** | Fallback estable |
 | **Gemma 4 31B** | `nvidia/Gemma-4-31B-IT-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~6.7** | Solo si se necesita el denso |
-| **Qwen 3.6 35B-A3B** | Cuantiizado propio MLP-only NVFP4 | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~34.4** | Alternativa TRT-LLM; más lenta que vLLM RedHatAI pero usa stack oficial |
+| **Qwen 3.6 35B-A3B** | Cuantiizado propio MLP-only NVFP4 | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~34.4** | Alternativa TRT-LLM; usa stack oficial |
 | **Nemotron-3-Nano-30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~28.8** | Modelo denso BF16 de NVIDIA; usa casi toda la memoria |
 | Nemotron-3-Nano-30B-A3B | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | `vllm/vllm-openai:gemma4-0505-cu130` | ~28.3 | Alternativa vLLM; requiere liberar VRAM de otros servicios |
 | **Nemotron-3-Super-120B-A12B** | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4` | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~14.7** | Modelo grande NVFP4; prioriza calidad sobre velocidad. **No usar con vLLM** |
@@ -345,7 +332,7 @@ El formato **full NVFP4** aún no es compatible con TRT-LLM 1.3.0rc13 por la ate
 - **HF_TOKEN requerido** para descargar modelos Gemma/Qwen de HuggingFace.
 - **Memoria**: el modelo Gemma 4 26B-A4B NVFP4 ocupa ~18 GB en memoria al cargar; KV cache FP8 deja ~82 GB disponibles.
 - **Marlin backend**: obligatorio en GB10 para MoE NVFP4. Backends nativos FP4 (CUTLASS/FlashInfer) pueden fallar o dar NaN en sm_121.
-- **Tool calling**: Qwen 3.6 requiere `--enable-auto-tool-choice --tool-call-parser qwen3_xml --reasoning-parser qwen3`; sin `qwen3_xml`, vLLM devuelve XML en `content` y el array nativo `tool_calls` queda vacío, por lo que agentes como Hermes/OpenClaw no ejecutan herramientas. Gemma 4 también tiene parser nativo `gemma4` por probar.
+- **Tool calling**: Qwen 3.6 requiere `--enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3`; el parser `qwen3_coder` es más robusto para multi-turn que el anterior `qwen3_xml`. Sin parser, vLLM devuelve XML en `content` y el array nativo `tool_calls` queda vacío, por lo que agentes como Hermes/OpenClaw no ejecutan herramientas. Gemma 4 también tiene parser nativo `gemma4` por probar.
 - **TRT-LLM con Nemotron 3**: los checkpoints oficiales cargan directamente con `trtllm-serve --backend pytorch --kv_cache_dtype fp8`. El Nano BF16 usa ~118 GB del pool unificado; el Super NVFP4 ~110 GB.
 - **vLLM con Nemotron 3**: el Nano BF16 y el Omni NVFP4 funcionan con `vllm/vllm-openai:gemma4-0505-cu130`. El Super 120B-A12B no es viable: el V1 engine reserva memoria agresivamente y provoca `CUDA OOM` o colgado del sistema cuando hay otros consumidores de VRAM.
 - **Servicios en segundo plano**: antes de lanzar modelos grandes, verifica que no haya `llama-server`, contenedores u otros procesos ocupando memoria GPU. En este trabajo, dos servidores Qwen GGUF en llama.cpp usaban ~76 GB y causaban OOM al iniciar vLLM.
@@ -358,13 +345,15 @@ El formato **full NVFP4** aún no es compatible con TRT-LLM 1.3.0rc13 por la ate
 - `resultados-gemma4-spark.md`: tabla resumen y conclusiones.
 - `registro-gemma4-spark.md`: este log detallado.
 - `scripts/run-gemma4-26b-a4b.sh`: script para lanzar Gemma 4 26B-A4B community.
-- `scripts/run-qwen36-35b-a3b.sh`: script para lanzar Qwen 3.6 35B-A3B con vLLM.
+- `scripts/run-qwen36-35b-a3b.sh`: script principal para lanzar Qwen 3.6 35B-A3B nvidia NVFP4 con vLLM nightly (262K contexto).
+- `scripts/run-qwen36-35b-a3b-extreme-context-2seq.sh`: alias a `run-qwen36-35b-a3b.sh` para contexto extremo.
 - `scripts/run-qwen36-35b-a3b-trtllm.sh`: script para lanzar Qwen 3.6 35B-A3B con TensorRT-LLM (checkpoint MLP-only).
 - `scripts/run-gemma4-31b.sh`: script para lanzar Gemma 4 31B.
 - `scripts/run-nemotron3-nano-30b-a3b-trtllm.sh`: script para lanzar Nemotron-3-Nano con TRT-LLM.
 - `scripts/run-nemotron3-nano-30b-a3b-vllm.sh`: script para lanzar Nemotron-3-Nano con vLLM.
 - `scripts/run-nemotron3-super-120b-a12b-trtllm.sh`: script para lanzar Nemotron-3-Super con TRT-LLM.
 - `scripts/run-nemotron3-nano-omni-vllm.sh`: script para lanzar Nemotron-3-Nano-Omni multimodal con vLLM.
+- `chat-templates/qwen3.6-miaai.jinja`: template Jinja para Qwen 3.6 con thinking/tool support.
 - `benchmarks/bench_model.py`: script de benchmark reproducible.
 - `benchmarks/test_multimodal.py`: script para probar imagen/audio con modelos multimodales.
 - `scripts/quantize-qwen36-nvfp4.sh`: script para cuantizar Qwen 3.6 BF16 a NVFP4 MLP-only con Model Optimizer.
@@ -372,10 +361,9 @@ El formato **full NVFP4** aún no es compatible con TRT-LLM 1.3.0rc13 por la ate
 
 ## 8. Próximos pasos opcionales
 
-1. Investigar MTP para Qwen 3.6 con un contenedor más reciente o configurando `moe_backend` diferente para el drafter.
+1. Validar MTP speculative decoding con el checkpoint nvidia + vLLM nightly (en pruebas anteriores con RedHatAI empeoró el decode single-user).
 2. Probar `--tool-call-parser gemma4` en Gemma 4 para tool calling nativo.
 3. Evaluar calidad de los modelos en tareas de agentes (Hermes/OpenClaw).
-4. Configurar LiteLLM como proxy para exponer múltiples modelos en puertos distintos.
-5. Probar full NVFP4 de Qwen 3.6 en TRT-LLM cuando se soporen los scales de atención lineal, o con una versión más reciente de Model Optimizer/TRT-LLM.
-6. Evaluar calidad del Qwen 3.6 MLP-only NVFP4 propio vs RedHatAI compressed-tensors.
-7. Probar GPT-OSS con TRT-LLM según el roadmap del usuario.
+4. Probar full NVFP4 de Qwen 3.6 en TRT-LLM cuando se soporten los scales de atención lineal.
+5. Comparar calidad de Qwen 3.6 nvidia W4A16 vs RedHatAI compressed-tensors vs MLP-only NVFP4 propio.
+6. Probar GPT-OSS con TRT-LLM.
