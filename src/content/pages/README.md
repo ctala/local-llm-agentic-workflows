@@ -54,16 +54,16 @@ For local LLM deployment on DGX Spark or equivalent 96–128 GB edge hardware, s
 
 | Priority | Model | Framework | Decode tok/s | Memory | Tool calling | Multimodal | Max context tested |
 |----------|-------|-----------|--------------|--------|--------------|------------|--------------------|
+| **Quality/speed balance** | Qwen 3.6 35B-A3B (nvidia NVFP4) | vLLM nightly | **~75–77** | ~22 GB | ✅ | ✅ image/video | **262K** |
 | **Speed** | Gemma 4 26B-A4B IT (community patch) | vLLM | **~49.5** | ~22 GB | ✅ | ✅ image/video | 128K |
-| **Quality/speed balance** | Qwen 3.6 35B-A3B | vLLM | **~42.2** | ~22 GB | ✅ | ✅ image/video | **262K** |
 | **Official NVIDIA multimodal** | Nemotron-3 Nano Omni 30B-A3B | vLLM | **~40.0** | ~40 GB | ✅ | ✅ image | 128K |
 
 For quality-first workloads where speed is less important:
 
 | Model | Framework | Decode tok/s | Memory | Notes |
 |-------|-----------|--------------|--------|-------|
-| Nemotron-3 Super 120B-A12B | TensorRT-LLM | ~14.7 | ~110 GB | Best official quality; use only with TRT-LLM |
 | Qwen 3.6 35B-A3B (custom MLP-only NVFP4) | TensorRT-LLM | ~34.4 | ~41 GB | Official NVIDIA stack; requires manual quantization |
+| Nemotron-3 Super 120B-A12B | TensorRT-LLM | ~14.7 | ~110 GB | Best official quality; use only with TRT-LLM |
 
 ---
 
@@ -98,7 +98,6 @@ The recipes were tested on the **NVIDIA DGX Spark** and should work on any ARM64
 │   ├── run-gemma4-26b-a4b.sh
 │   ├── run-qwen36-35b-a3b.sh
 │   ├── run-qwen36-35b-a3b-extreme-context-2seq.sh
-│   ├── run-qwen36-35b-a3b-extreme-context-3seq.sh
 │   ├── run-qwen36-35b-a3b-trtllm.sh
 │   ├── run-gemma4-31b.sh
 │   ├── run-nemotron3-nano-30b-a3b-trtllm.sh
@@ -138,13 +137,14 @@ Benchmarks use a ~120-token prompt, `max_tokens=512`, temperature 0.7 and stream
 
 | Model | Checkpoint | Framework | Decode tok/s | Memory | Tool calling | Multimodal | Max context | Recommendation |
 |-------|------------|-----------|--------------|--------|--------------|------------|-------------|----------------|
-| **Gemma 4 26B-A4B** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + patch | vLLM | **~49.5** | ~22 GB | ✅ | ✅ image/video | 128K | **Fastest local LLM for text agents** |
-| **Qwen 3.6 35B-A3B** | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | vLLM | **~42.2** | ~22 GB | ✅ | ✅ image/video | **262K** | **Best quality/speed trade-off; longest context** |
+| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | vLLM nightly | **~75–77** | ~22 GB | ✅ | ✅ image/video | **262K** | **Current recommendation: best quality/speed balance and longest context** |
+| **Gemma 4 26B-A4B** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + patch | vLLM | **~49.5** | ~22 GB | ✅ | ✅ image/video | 128K | **Fastest raw speed for text agents** |
+| **Qwen 3.6 35B-A3B** | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | vLLM | **~42.2** | ~22 GB | ✅ | ✅ image/video | **262K** | Stable fallback |
+| **Nemotron-3 Nano Omni 30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` | vLLM | **~40.0** | ~40 GB | ✅ | ✅ image | 128K | **Best official multimodal option** |
 | Qwen 3.6 35B-A3B | Custom MLP-only NVFP4 | TRT-LLM | ~34.4 | ~41 GB | ✅ | ❌ text only | 32K | Official NVIDIA stack |
 | Nemotron-3 Nano 30B-A3B | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | TRT-LLM | ~28.8 | ~118 GB | ✅ | ❌ text only | 8K | Official dense model; leaves little free memory |
 | Nemotron-3 Nano 30B-A3B | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | vLLM | ~28.3 | ~72 GB | ✅ | ❌ text only | 8K | vLLM alternative; stop other GPU services first |
 | **Nemotron-3 Super 120B-A12B** | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4` | TRT-LLM | **~14.7** | ~110 GB | ✅ | ❌ text only | 8K | Best official quality; **not viable with vLLM on GB10** |
-| **Nemotron-3 Nano Omni 30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` | vLLM | **~40.0** | ~40 GB | ✅ | ✅ image | 128K | **Best official multimodal option** |
 | Gemma 4 31B | `nvidia/Gemma-4-31B-IT-NVFP4` | vLLM | ~6.7 | ~31 GB | ✅ | ✅ image/video | 128K | Use only if you need the dense variant |
 
 See [Results](/local-llm-agentic-workflows/results/) for full tables, launch commands and error analysis.
@@ -193,12 +193,12 @@ systemctl --user enable --now qwen27-local.service qwen35-local.service
 
 Based on throughput, memory headroom and tool-calling support on DGX Spark and equivalent 96–128 GB edge AI hardware:
 
-1. **Fastest local LLM for agents and chatbots** → **Gemma 4 26B-A4B IT** (community patch) on vLLM.
+1. **Best quality/speed balance** → **Qwen 3.6 35B-A3B** (`nvidia/Qwen3.6-35B-A3B-NVFP4`) on vLLM nightly.
+   - **~75–77 tok/s**, ~22 GB memory, full **262K context**, excellent tool calling with `qwen3_coder`, image/video support.
+2. **Fastest raw speed for agents and chatbots** → **Gemma 4 26B-A4B IT** (community patch) on vLLM.
    - ~49.5 tok/s, ~22 GB memory. Requires the community patch.
-2. **Best quality/speed balance** → **Qwen 3.6 35B-A3B** (`RedHatAI/Qwen3.6-35B-A3B-NVFP4`) on vLLM.
-   - ~42 tok/s, ~22 GB memory, excellent tool calling, image/video support.
-3. **Maximum context for long-document / multi-turn agents** → **Qwen 3.6 35B-A3B** on vLLM with the extreme-context recipe.
-   - Up to **2 parallel sessions × 262K tokens** on DGX Spark; stable with `--max-num-seqs 2` and `gpu-memory-utilization 0.95`.
+3. **Stable fallback** → **Qwen 3.6 35B-A3B** (`RedHatAI/Qwen3.6-35B-A3B-NVFP4`) on vLLM.
+   - ~42 tok/s, ~22 GB memory, tool calling, image/video support.
 4. **Official NVIDIA multimodal** → **Nemotron-3 Nano Omni 30B-A3B** on vLLM.
    - ~40 tok/s, ~40 GB memory, image support. Audio decoding needs more work.
 5. **Official NVIDIA stack** → **Qwen 3.6 35B-A3B MLP-only NVFP4** on TensorRT-LLM.
@@ -210,26 +210,33 @@ Based on throughput, memory headroom and tool-calling support on DGX Spark and e
 
 ## Parallel long-context sessions with Qwen 3.6 35B-A3B
 
-Agentic frameworks such as **Hermes** and **OpenClaw** can run multiple conversations or subagents at the same time. We validated how many parallel long-context sessions the DGX Spark can sustain with `Qwen3.6-35B-A3B-NVFP4` served by vLLM.
+Agentic frameworks such as **Hermes** and **OpenClaw** can run multiple conversations or subagents at the same time. We validated how many parallel long-context sessions the DGX Spark can sustain with `nvidia/Qwen3.6-35B-A3B-NVFP4` served by vLLM nightly.
 
 ### Configuration
 
-Use the extreme-context recipe in `scripts/run-qwen36-35b-a3b-extreme-context-2seq.sh`:
+Use the recipe in `scripts/run-qwen36-35b-a3b.sh` (or its alias `scripts/run-qwen36-35b-a3b-extreme-context-2seq.sh`):
 
 ```bash
+--model /models/qwen3.6 \
+--trust-remote-code \
+--tensor-parallel-size 1 \
+--attention-backend flashinfer \
+--moe-backend marlin \
+--kv-cache-dtype fp8 \
+--gpu-memory-utilization 0.92 \
 --max-model-len 262144 \
 --max-num-seqs 2 \
 --max-num-batched-tokens 32768 \
---kv-cache-dtype fp8 \
---gpu-memory-utilization 0.95 \
+--enable-chunked-prefill \
+--async-scheduling \
+--enable-prefix-caching \
+--load-format fastsafetensors \
 --enable-auto-tool-choice \
---tool-call-parser qwen3_xml \
+--tool-call-parser qwen3_coder \
 --reasoning-parser qwen3
 ```
 
 This is the recommended default for agentic workloads. It gives **two 262K-token sessions in parallel** while leaving headroom for LiteLLM, ASR or other auxiliary services.
-
-A 3-sequence variant (`scripts/run-qwen36-35b-a3b-extreme-context-3seq.sh` with `gpu-memory-utilization 0.94`) loads, but it leaves little free unified memory and makes the Spark vulnerable to hangs. Use it only when vLLM is the only heavy service running.
 
 ### Verified concurrency (2-session config)
 
@@ -268,30 +275,30 @@ See [Agents](/local-llm-agentic-workflows/agents/) for the full integration guid
 - **Local web search** — SearXNG self-hosted meta-search
 - **Troubleshooting**
 
-Quick start for Hermes:
+Quick start for Hermes (via LiteLLM proxy):
 
 ```yaml
 providers:
-  local-qwen-35b-vllm-262k:
-    base_url: http://localhost:8000/v1
-    name: Spark Qwen 35B-A3B (vLLM 262K)
+  local-qwen-35b-vllm-fast:
+    base_url: http://localhost:4000/v1
+    name: Spark Qwen 35B-A3B (vLLM fast)
     api_key: local-no-key-needed
-    model: qwen3.6-35b-a3b
+    model: qwen3.6-35b-a3b-vllm-fast
     context_length: 262144
 ```
 
 ```bash
-hermes chat --provider local-qwen-35b-vllm-262k -m qwen3.6-35b-a3b
+hermes chat --provider local-qwen-35b-vllm-fast -m qwen3.6-35b-a3b-vllm-fast
 ```
 
 ---
 
 ## Next steps
 
-- Add quality measurements with agentic benchmarks on top of throughput numbers.
-- Test additional models in GGUF and MTP variants to compare quality vs speed trade-offs.
+- Add quality measurements with agentic benchmarks on top of throughput numbers for `nvidia/Qwen3.6-35B-A3B-NVFP4`.
+- Evaluate Qwen 3.6 MTP variants and Unsloth-optimized builds if they become available for GB10, always checking quality parity.
 - Resolve audio decoding for Nemotron-3 Nano Omni.
-- Add LiteLLM proxy recipes to expose multiple models on different ports.
+- Keep LiteLLM proxy recipes current as the single endpoint for Hermes, OpenClaw and Open WebUI.
 - Expand coverage to other high-memory edge devices beyond DGX Spark.
 - Validate 2×262K context under real OpenClaw / Hermes multi-turn traces.
 
@@ -300,7 +307,7 @@ hermes chat --provider local-qwen-35b-vllm-262k -m qwen3.6-35b-a3b
 ## Frequently asked questions
 
 ### What is the best local LLM for the NVIDIA DGX Spark?
-For raw speed, **Gemma 4 26B-A4B IT** (community patch) reaches ~49.5 tok/s. For the best balance of quality, speed, tool calling and long context, **Qwen 3.6 35B-A3B** is the standout choice at ~42.2 tok/s with up to 262K context.
+**Qwen 3.6 35B-A3B** (`nvidia/Qwen3.6-35B-A3B-NVFP4`) served by vLLM nightly is the current sweet spot: **~75–77 tok/s**, full **262K context**, strong tool calling and image/video support, at ~22 GB of memory.
 
 ### Can the DGX Spark run 70B+ parameter models locally?
 Yes. With 128 GB of unified memory and NVFP4 quantization, the Spark can run the **Nemotron-3 Super 120B-A12B** model at ~14.7 tok/s, but only with TensorRT-LLM. vLLM reserves memory too aggressively for this model on GB10.
@@ -309,7 +316,7 @@ Yes. With 128 GB of unified memory and NVFP4 quantization, the Spark can run the
 It depends on the model. **vLLM** is faster and more flexible for Gemma 4, Qwen 3.6 and Nemotron-3 Nano Omni. **TensorRT-LLM** is more memory-efficient and the only stable option for Nemotron-3 Super 120B-A12B.
 
 ### Which models support tool calling and agents?
-All models in the results table support tool calling when served with the correct parser. Qwen 3.6 specifically requires `--tool-call-parser qwen3_xml` for Hermes/OpenClaw-style agents.
+All models in the results table support tool calling when served with the correct parser. Qwen 3.6 specifically requires `--tool-call-parser qwen3_coder` for Hermes/OpenClaw-style agents.
 
 ### Can I use these recipes on non-NVIDIA hardware?
 The Docker images and Marlin backend are NVIDIA-specific. For x86_64 workstations with 96–128 GB of GPU memory, use the equivalent x86_64 vLLM/TRT-LLM images; the launch flags remain largely the same.
