@@ -25,7 +25,7 @@ Benchmark realizado con prompt de ~120 tokens en español, `max_tokens=512`, tem
 
 | Modelo | Checkpoint usado | Contenedor vLLM | Mejor decode tok/s | TTFT caliente | VRAM usada | Notas |
 |--------|------------------|-----------------|--------------------|---------------|------------|-------|
-| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~76 tok/s** | ~0.10 s | ~22 GB | **Recomendado actual.** W4A16 NVFP4 (`modelopt`), backend `flashinfer`, KV cache FP8, backend Marlin para SM121, parser `qwen3_coder`, 196K contexto, 1 secuencia. Recupera los ~75–77 tok/s originales con mejor manejo de memoria en contextos largos. |
+| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~76 tok/s** | ~0.10 s | ~22 GB | **Recomendado actual.** W4A16 NVFP4 (`modelopt`), backend `flashinfer`, KV cache FP8, backend Marlin para SM121, parser `qwen3_coder`, 240K contexto, 1 secuencia. Recupera los ~75–77 tok/s originales con mejor manejo de memoria en contextos largos. |
 | **Gemma 4 26B-A4B IT** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + `gemma4_patched.py` | `vllm/vllm-openai:gemma4-cu130` | **~49.5 tok/s** | ~0.08 s | ~22 GB | Mayor velocidad bruta para agentes. Requiere parche community. |
 | Qwen 3.6 35B-A3B | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~42.2 tok/s | ~0.10 s | ~22 GB | Formato `compressed-tensors`. Fallback estable. |
 | **Nemotron-3-Nano-Omni-30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~40.0 tok/s** | ~0.10 s | **~40 GB** | **Multimodal oficial**: texto + imagen funcionan. Audio aún no probado funcional en este contenedor. |
@@ -43,7 +43,7 @@ Benchmark realizado con prompt de ~120 tokens en español, `max_tokens=512`, tem
 
 ### Conclusiones rápidas
 
-- **Para mejor calidad/velocidad (~76 tok/s)**: usar **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** con `--attention-backend flashinfer`, `--kv-cache-dtype fp8`, `--moe-backend marlin`, `VLLM_TEST_FORCE_FP8_MARLIN=1` y `VLLM_MARLIN_USE_ATOMIC_ADD=1`. El backend Marlin evita el camino CUTLASS FP4 roto en GB10/SM121 y permite usar `torch.compile`/`CUDAGraph` sin el crash `bmm_fp8` que vimos antes. Para dejar margen en contextos largos usamos **196K de contexto con 1 secuencia concurrente** (bajando de 262K/2). Esto mantiene ~75–76 tok/s y deja suficiente memoria unificada para sesiones de agente de ~180K tokens.
+- **Para mejor calidad/velocidad (~76 tok/s)**: usar **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** con `--attention-backend flashinfer`, `--kv-cache-dtype fp8`, `--moe-backend marlin`, `VLLM_TEST_FORCE_FP8_MARLIN=1` y `VLLM_MARLIN_USE_ATOMIC_ADD=1`. El backend Marlin evita el camino CUTLASS FP4 roto en GB10/SM121 y permite usar `torch.compile`/`CUDAGraph` sin el crash `bmm_fp8` que vimos antes. Para dejar margen en contextos largos usamos **240K de contexto con 1 secuencia concurrente** (bajando de 262K). Esto mantiene ~75–76 tok/s y deja suficiente memoria unificada para sesiones de agente de ~220K tokens.
 - **Para máxima velocidad (~50 tok/s)**: usar **Gemma 4 26B-A4B community + parche**.
 - **Qwen 3.6 35B-A3B RedHatAI** (~42 tok/s) sigue siendo un fallback estable si el checkpoint nvidia o la imagen nightly no están disponibles.
 - **Gemma 4 31B** no es viable para uso interactivo rápido en GB10 (~7 tok/s).
@@ -117,7 +117,7 @@ docker run -d --name qwen36-35b-a3b \
     --attention-backend flashinfer \
     --moe-backend marlin \
     --gpu-memory-utilization 0.92 \
-    --max-model-len 196608 \
+    --max-model-len 240000 \
     --max-num-seqs 1 \
     --max-num-batched-tokens 32768 \
     --enable-chunked-prefill \
@@ -302,9 +302,9 @@ docker run -d --name gemma4-31b \
     --tool-call-parser pythonic
 ```
 
-### 9. Qwen 3.6 35B-A3B con contexto largo (196K × 1 sesión)
+### 9. Qwen 3.6 35B-A3B con contexto largo (240K × 1 sesión)
 
-Requiere descargar `nvidia/Qwen3.6-35B-A3B-NVFP4`. Esta es la configuración recomendada para agentes con contextos largos en el Spark. El script principal `run-qwen36-35b-a3b.sh` ya usa 196K/1 sesión; `run-qwen36-35b-a3b-extreme-context-2seq.sh` es un alias para el mismo script.
+Requiere descargar `nvidia/Qwen3.6-35B-A3B-NVFP4`. Esta es la configuración recomendada para agentes con contextos largos en el Spark. El script principal `run-qwen36-35b-a3b.sh` ya usa 240K/1 sesión; `run-qwen36-35b-a3b-extreme-context-2seq.sh` es un alias para el mismo script.
 
 ```bash
 ./scripts/run-qwen36-35b-a3b.sh
@@ -312,7 +312,7 @@ Requiere descargar `nvidia/Qwen3.6-35B-A3B-NVFP4`. Esta es la configuración rec
 
 > **Importante**: Qwen 3.6 requiere `--tool-call-parser qwen3_coder` (más robusto para multi-turn que el anterior `qwen3_xml`); sin parser, vLLM devuelve XML en `content` y el array nativo `tool_calls` queda vacío, por lo que agentes como Hermes/OpenClaw no ejecutan las herramientas.
 >
-> **Configuración estable**: `--max-num-seqs 1` con `--max-model-len 196608` y `gpu-memory-utilization 0.92` deja margen para LiteLLM, ASR y otros servicios auxiliares. El límite duro del modelo sigue siendo 262K, pero lo ejecutamos a 196K para estabilidad.
+> **Configuración estable**: `--max-num-seqs 1` con `--max-model-len 240000` y `gpu-memory-utilization 0.92` deja margen para LiteLLM, ASR y otros servicios auxiliares. El límite duro del modelo sigue siendo 262K, pero lo ejecutamos a 240K para estabilidad.
 
 ---
 
@@ -388,7 +388,7 @@ Para flujos de agentes que necesitan ingerir contextos largos (bases de código,
 --attention-backend flashinfer \
 --moe-backend marlin \
 --gpu-memory-utilization 0.92 \
---max-model-len 196608 \
+--max-model-len 240000 \
 --max-num-seqs 1 \
 --max-num-batched-tokens 32768 \
 --enable-chunked-prefill \
@@ -408,7 +408,7 @@ Variables de entorno pasadas al contenedor:
 -e VLLM_MARLIN_USE_ATOMIC_ADD=1
 ```
 
-**1 sesión concurrente es la configuración estable recomendada**, ya que deja margen para LiteLLM, ASR y otros servicios auxiliares. El límite duro del modelo es 262K tokens, pero lo corremos a **196K** para dejar memoria libre y evitar que contextos de ~180K tokens causen swap o timeouts.
+**1 sesión concurrente es la configuración estable recomendada**, ya que deja margen para LiteLLM, ASR y otros servicios auxiliares. El límite duro del modelo es 262K tokens, pero lo corremos a **240K** para dejar memoria libre y evitar que contextos de ~220K tokens causen swap o timeouts.
 
 ### Escalado de contexto en una sola sesión
 
@@ -417,22 +417,22 @@ Variables de entorno pasadas al contenedor:
 | 1,000 | 32 | 0.28 s | 45.57 | Línea base caliente. |
 | 50,000 | 64 | 27.1 s | 45.66 | Primera llamada grande; incluye algo de JIT warmup. |
 | 100,000 | 64 | 22.87 s | 39.80 | TTFT más rápido que 50K porque los kernels ya están calientes. |
-| 180,000 | 64 | ~50 s | ~35 | Estable dentro del límite operativo de 196K. |
-| 200,000 | 64 | 65.45 s | 33.17 | Estable, memoria ~120 GB (dato histórico con 196K/1 sesión). |
+| 180,000 | 64 | ~50 s | ~35 | Estable dentro del límite operativo de 240K. |
+| 200,000 | 64 | 65.45 s | 33.17 | Estable, memoria ~120 GB (dato histórico con 240K/1 sesión). |
 | 262,000 | 64 | 56.49 s | 30.22 | Cerca del límite duro del modelo (262,144 tokens); dato histórico, no es la config diaria. |
 
 ### Comportamiento de memoria
 
 - **En reposo después de cargar (1 sesión)**: ~119–120 GB usados / ~121 GB totales, dejando ~1–2 GB para servicios auxiliares.
-- **Durante prefill de ~180K tokens**: memoria ~120 GB, sin swap significativo en la config actual.
+- **Durante prefill de ~220K tokens**: memoria ~120 GB, sin swap significativo en la config actual.
 - **Estable**: sin OOM, sin colgarse, sin reinicios obligatorios durante estas pruebas.
 
 ### Guía práctica para agentes
 
 - **Turno típico de agente**: agentes tipo Hermes/OpenClaw suelen usar **8K–32K tokens** de contexto activo por sesión.
 - **Configuración de producción conservadora**: **1 sesión × 64K–128K de contexto** corre con buen TTFT y deja margen para LiteLLM/ASR.
-- **Máximo contexto práctico**: **~180K tokens** con 1 sesión concurrente en la config de 196K.
-- **No uses 2+ sesiones a 196K** a menos que la máquina esté dedicada solo a vLLM y puedas tolerar picos de memoria.
+- **Máximo contexto práctico**: **~220K tokens** con 1 sesión concurrente en la config de 240K.
+- **No uses 2+ sesiones a 240K** a menos que la máquina esté dedicada solo a vLLM y puedas tolerar picos de memoria.
 
 ---
 
@@ -561,14 +561,14 @@ Dado lo anterior, **vLLM es la opción más rápida y sencilla hoy** para Gemma 
 
 Para uso con agentes locales en DGX Spark, la configuración ganadora es:
 
-- **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** → **~76 tok/s** con `--attention-backend flashinfer`, `--kv-cache-dtype fp8`, `--moe-backend marlin`, `VLLM_TEST_FORCE_FP8_MARLIN=1` y `VLLM_MARLIN_USE_ATOMIC_ADD=1`. Tool calling con `qwen3_coder`, soporte imagen/video y **196K de contexto** con 1 secuencia — suficiente margen para sesiones de agente de ~180K tokens en el Spark. **Esta es la recomendación actual.**
+- **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** → **~76 tok/s** con `--attention-backend flashinfer`, `--kv-cache-dtype fp8`, `--moe-backend marlin`, `VLLM_TEST_FORCE_FP8_MARLIN=1` y `VLLM_MARLIN_USE_ATOMIC_ADD=1`. Tool calling con `qwen3_coder`, soporte imagen/video y **240K de contexto** con 1 secuencia — suficiente margen para sesiones de agente de ~220K tokens en el Spark. **Esta es la recomendación actual.**
 - **Gemma 4 26B-A4B community + parche** → ~49.5 tok/s, tool calling, bajo uso de VRAM.
 - Alternativa estable anterior: **Qwen 3.6 35B-A3B RedHatAI** → ~42.2 tok/s, tool calling, soporte imagen/video y hasta 2 sesiones paralelas de 262K tokens de contexto.
 - Alternativa oficial NVIDIA (TensorRT-LLM): **Qwen 3.6 35B-A3B MLP-only NVFP4** cuantizado desde BF16 → ~34.4 tok/s.
 
 Gemma 4 31B dense debe reservarse solo para tareas donde la calidad del modelo denso justifique los ~7 tok/s.
 
-**Si tu framework de agentes (OpenClaw, Hermes, etc.) necesita la ventana de contexto más grande práctica en un solo GPU local**, Qwen 3.6 35B-A3B en vLLM es la opción clara: entrega hasta **196K tokens** con 1 sesión concurrente por defecto, dejando margen para servicios auxiliares. El límite duro del modelo sigue siendo 262K, pero lo ejecutamos a 196K por estabilidad en el Spark.
+**Si tu framework de agentes (OpenClaw, Hermes, etc.) necesita la ventana de contexto más grande práctica en un solo GPU local**, Qwen 3.6 35B-A3B en vLLM es la opción clara: entrega hasta **240K tokens** con 1 sesión concurrente por defecto, dejando margen para servicios auxiliares. El límite duro del modelo sigue siendo 262K, pero lo ejecutamos a 240K por estabilidad en el Spark.
 
 **Nemotron 3**:
 - **Nano 30B-A3B BF16**: ~28.8 tok/s con TRT-LLM (~118 GB) o ~28.3 tok/s con vLLM (~72 GB). Elige TRT-LLM si prefieres el stack oficial, vLLM si quieres dejar más memoria libre.

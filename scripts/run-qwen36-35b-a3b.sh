@@ -4,7 +4,7 @@
 # backend Marlin para NVFP4 en SM121 (DGX Spark); el backend Marlin evita
 # el fallback lento/inestable de los kernels CUTLASS FP4 de FlashInfer.
 # Sin --enforce-eager, recupera CUDA graphs + torch.compile.
-# Contexto máximo 192K (cubre uso real ~180K) con 1 secuencia para dejar
+# Contexto máximo 240K (cubre uso real ~220K) con 1 secuencia para dejar
 # margen de memoria unificada y evitar swap en contextos largos.
 # Tool calling robusto vía qwen3_coder.
 # Requiere: ~/vllm/qwen3.6-35b-a3b-nvfp4-nvidia
@@ -54,7 +54,7 @@ VLLM_ARGS=(
   --attention-backend flashinfer
   --moe-backend marlin
   --gpu-memory-utilization "${GPU_UTIL}"
-  --max-model-len 196608
+  --max-model-len 240000
   --max-num-seqs 1
   --max-num-batched-tokens 32768
   --enable-chunked-prefill
@@ -76,7 +76,7 @@ if [[ "${SERVICE_MODE}" == "1" ]]; then
   exec docker run "${DOCKER_ARGS[@]}" "${IMAGE}" "${VLLM_ARGS[@]}"
 fi
 
-echo "Lanzando Qwen 3.6 35B-A3B NVFP4 (nvidia, 262K context) en puerto ${PORT}..."
+echo "Lanzando Qwen 3.6 35B-A3B NVFP4 (nvidia, 240K context) en puerto ${PORT}..."
 
 docker run -d --name "qwen36-35b-a3b-${PORT}" \
   "${DOCKER_ARGS[@]}" \
