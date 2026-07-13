@@ -15,7 +15,7 @@ A practical guide, reproducible benchmarks and ready-to-run Docker recipes for r
 
 | Model | Decode speed | Best for |
 |-------|--------------|----------|
-| **Qwen 3.6 35B-A3B** (nvidia NVFP4, vLLM nightly) | **~75–77 tok/s** | Best quality/speed balance, full 262K context, robust tool calling. |
+| **Qwen 3.6 35B-A3B** (nvidia NVFP4, vLLM nightly, `flash_attn`) | **~75–77 tok/s** | Best quality/speed balance, full 262K context, robust tool calling. Uses BF16 KV cache for stability. |
 | **Gemma 4 26B-A4B IT** (community patch) | **~49.5 tok/s** | Maximum raw speed for agents. |
 | **Nemotron-3-Nano-Omni-30B-A3B** | **~40.0 tok/s** | Official NVIDIA multimodal (text + image). |
 | **Qwen 3.6 35B-A3B** (RedHatAI) | **~42.2 tok/s** | Stable fallback if nvidia checkpoint is unavailable. |

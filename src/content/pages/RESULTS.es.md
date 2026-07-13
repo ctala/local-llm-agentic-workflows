@@ -25,12 +25,12 @@ Benchmark realizado con prompt de ~120 tokens en español, `max_tokens=512`, tem
 
 | Modelo | Checkpoint usado | Contenedor vLLM | Mejor decode tok/s | TTFT caliente | VRAM usada | Notas |
 |--------|------------------|-----------------|--------------------|---------------|------------|-------|
-| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~75–77 tok/s** | ~0.10 s | ~22 GB | **Recomendado actual.** W4A16 NVFP4 (`modelopt`), parser `qwen3_coder`, 262K contexto. |
+| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~75–77 tok/s** | ~0.10 s | ~22 GB | **Recomendado actual.** W4A16 NVFP4 (`modelopt`), backend `flash_attn`, KV cache BF16, parser `qwen3_coder`, 262K contexto. |
 | **Gemma 4 26B-A4B IT** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + `gemma4_patched.py` | `vllm/vllm-openai:gemma4-cu130` | **~49.5 tok/s** | ~0.08 s | ~22 GB | Mayor velocidad bruta para agentes. Requiere parche community. |
 | Qwen 3.6 35B-A3B | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~42.2 tok/s | ~0.10 s | ~22 GB | Formato `compressed-tensors`. Fallback estable. |
 | **Nemotron-3-Nano-Omni-30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~40.0 tok/s** | ~0.10 s | **~40 GB** | **Multimodal oficial**: texto + imagen funcionan. Audio aún no probado funcional en este contenedor. |
 | Qwen 3.6 35B-A3B (n-gram speculative) | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~34–37 tok/s | ~0.10 s | ~22 GB | Empeora para texto no repetitivo. |
-| **Qwen 3.6 35B-A3B TRT-LLM (MLP-only NVFP4)** | Cuantiizado con Model Optimizer 0.44.0 desde `Qwen/Qwen3.6-35B-A3B` BF16 | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~34.4 tok/s** | ~0.09 s | ~41 GB | Formato `modelopt` NVFP4 MLP-only + KV FP8. Funciona con TRT-LLM PyTorch backend. |
+| **Qwen 3.6 35B-A3B TRT-LLM (MLP-only NVFP4)** | Cuantiizado con Model Optimizer 0.44.0 desde `Qwen/Qwen3.6-35B-A3B` BF16 | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~34.5 tok/s** | ~0.09 s | ~41 GB | Formato `modelopt` NVFP4 MLP-only + KV FP8. Funciona con TRT-LLM PyTorch backend. El chat template no genera thinking limpio en nuestras pruebas. |
 | Gemma 4 26B-A4B IT (oficial) | `nvidia/Gemma-4-26B-A4B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~30.1 tok/s | ~0.20 s | ~21 GB | Funciona sin parche, pero es ~20 tok/s más lento. |
 | **Nemotron-3-Nano-30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~28.8 tok/s** | ~0.22 s | **~118 GB** | Modelo denso BF16. Ocupa casi toda la memoria unificada. |
 | Nemotron-3-Nano-30B-A3B | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | `vllm/vllm-openai:gemma4-0505-cu130` | ~28.3 tok/s | ~0.20 s | ~72 GB | Alternativa vLLM. Requiere liberar VRAM de otros servicios. |
@@ -43,7 +43,7 @@ Benchmark realizado con prompt de ~120 tokens en español, `max_tokens=512`, tem
 
 ### Conclusiones rápidas
 
-- **Para mejor calidad/velocidad (~75–77 tok/s)**: usar **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly**. También soporta los 262K de contexto del modelo y tool calling robusto.
+- **Para mejor calidad/velocidad (~75–77 tok/s)**: usar **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** con `--attention-backend flash_attn` y KV cache BF16. También soporta los 262K de contexto del modelo y tool calling robusto. La config anterior (`flashinfer` + KV cache FP8) causó crashes recurrentes del EngineCore (`CUDNN_STATUS_EXECUTION_FAILED_CUDA_DRIVER` en `bmm_fp8`).
 - **Para máxima velocidad (~50 tok/s)**: usar **Gemma 4 26B-A4B community + parche**.
 - **Qwen 3.6 35B-A3B RedHatAI** (~42 tok/s) sigue siendo un fallback estable si el checkpoint nvidia o la imagen nightly no están disponibles.
 - **Gemma 4 31B** no es viable para uso interactivo rápido en GB10 (~7 tok/s).
@@ -112,9 +112,8 @@ docker run -d --name qwen36-35b-a3b \
     --host 0.0.0.0 --port 8000 \
     --trust-remote-code \
     --tensor-parallel-size 1 \
-    --attention-backend flashinfer \
+    --attention-backend flash_attn \
     --moe-backend marlin \
-    --kv-cache-dtype fp8 \
     --gpu-memory-utilization 0.92 \
     --max-model-len 262144 \
     --max-num-seqs 2 \
@@ -128,7 +127,7 @@ docker run -d --name qwen36-35b-a3b \
     --tool-call-parser qwen3_coder \
     --enable-auto-tool-choice \
     --chat-template /chat-templates/qwen3.6-miaai.jinja \
-    --default-chat-template-kwargs '{"enable_thinking":true,"preserve_thinking":true,"auto_disable_thinking_with_tools":true}'
+    --default-chat-template-kwargs '{"enable_thinking":true,"preserve_thinking":false,"auto_disable_thinking_with_tools":true}'
 ```
 
 ### 3. Qwen 3.6 35B-A3B con TensorRT-LLM (cuantizado MLP-only NVFP4)

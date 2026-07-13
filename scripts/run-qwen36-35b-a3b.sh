@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Lanza Qwen 3.6 35B-A3B NVFP4 (nvidia/Qwen3.6-35B-A3B-NVFP4) en DGX Spark.
-# Checkpoint W4A16 NVFP4 con vLLM nightly. Contexto máximo del modelo (262K),
-# tool calling robusto vía qwen3_coder y dos secuencias en paralelo.
+# Checkpoint W4A16 NVFP4 con vLLM nightly. Usa --attention-backend flash_attn
+# y KV cache BF16 (por defecto) para evitar crashes de flashinfer+FP8.
+# Contexto máximo del modelo (262K), tool calling robusto vía qwen3_coder
+# y dos secuencias en paralelo.
 # Requiere: ~/vllm/qwen3.6-35b-a3b-nvfp4-nvidia
 #
 # Uso interactivo: ./scripts/run-qwen36-35b-a3b.sh
@@ -44,9 +46,8 @@ VLLM_ARGS=(
   --host 0.0.0.0 --port "${PORT}"
   --trust-remote-code
   --tensor-parallel-size 1
-  --attention-backend flashinfer
+  --attention-backend flash_attn
   --moe-backend marlin
-  --kv-cache-dtype fp8
   --gpu-memory-utilization "${GPU_UTIL}"
   --max-model-len 262144
   --max-num-seqs 2
@@ -60,7 +61,7 @@ VLLM_ARGS=(
   --tool-call-parser qwen3_coder
   --enable-auto-tool-choice
   --chat-template /chat-templates/qwen3.6-miaai.jinja
-  --default-chat-template-kwargs '{"enable_thinking":true,"preserve_thinking":true,"auto_disable_thinking_with_tools":true}'
+  --default-chat-template-kwargs '{"enable_thinking":true,"preserve_thinking":false,"auto_disable_thinking_with_tools":true}'
 )
 
 if [[ "${SERVICE_MODE}" == "1" ]]; then

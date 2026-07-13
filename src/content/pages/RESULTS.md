@@ -31,12 +31,12 @@ Text benchmarks used a ~120-token Spanish prompt, `max_tokens=512`, temperature 
 
 | Model | Checkpoint | Framework / container | Decode tok/s | Hot TTFT | Memory | Notes |
 |-------|------------|----------------------|--------------|----------|--------|-------|
-| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~75–77** | ~0.10 s | ~22 GB | **Current recommended.** W4A16 NVFP4 (`modelopt`), `qwen3_coder` parser, 262K context. |
+| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~75–77** | ~0.10 s | ~22 GB | **Current recommended.** W4A16 NVFP4 (`modelopt`), `flash_attn` backend, BF16 KV cache, `qwen3_coder` parser, 262K context. |
 | **Gemma 4 26B-A4B IT** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + `gemma4_patched.py` | `vllm/vllm-openai:gemma4-cu130` | **~49.5** | ~0.08 s | ~22 GB | Best raw speed for agents. Requires community patch. |
 | Qwen 3.6 35B-A3B | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~42.2 | ~0.10 s | ~22 GB | `compressed-tensors` format. Stable previous checkpoint. |
 | **Nemotron-3-Nano-Omni-30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~40.0** | ~0.10 s | **~40 GB** | **Official multimodal**: text + image work. Audio decoding still unresolved in this container. |
 | Qwen 3.6 35B-A3B (n-gram speculative) | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~34–37 | ~0.10 s | ~22 GB | Worse for non-repetitive text. |
-| **Qwen 3.6 35B-A3B TRT-LLM (MLP-only NVFP4)** | Quantized with Model Optimizer 0.44.0 from `Qwen/Qwen3.6-35B-A3B` BF16 | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~34.4** | ~0.09 s | ~41 GB | `modelopt` NVFP4 MLP-only + FP8 KV. Works with TRT-LLM PyTorch backend. |
+| **Qwen 3.6 35B-A3B TRT-LLM (MLP-only NVFP4)** | Quantized with Model Optimizer 0.44.0 from `Qwen/Qwen3.6-35B-A3B` BF16 | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~34.5** | ~0.09 s | ~41 GB | `modelopt` NVFP4 MLP-only + FP8 KV. Works with TRT-LLM PyTorch backend. Chat template does not produce clean thinking output in our tests. |
 | Gemma 4 26B-A4B IT (official) | `nvidia/Gemma-4-26B-A4B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~30.1 | ~0.20 s | ~21 GB | Works without patch, but ~20 tok/s slower. |
 | **Nemotron-3-Nano-30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~28.8** | ~0.22 s | **~118 GB** | Dense BF16. Uses almost all unified memory. |
 | Nemotron-3-Nano-30B-A3B | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | `vllm/vllm-openai:gemma4-0505-cu130` | ~28.3 | ~0.20 s | ~72 GB | vLLM alternative. Stop other GPU services first. |
@@ -49,7 +49,7 @@ Text benchmarks used a ~120-token Spanish prompt, `max_tokens=512`, temperature 
 
 ### Key takeaways
 
-- **For best quality/speed balance (~75–77 tok/s)**: use **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly**. Also supports the model's full 262K context window and robust tool calling.
+- **For best quality/speed balance (~75–77 tok/s)**: use **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** with `--attention-backend flash_attn` and BF16 KV cache. Also supports the model's full 262K context window and robust tool calling. The previous `flashinfer` + FP8 KV cache config caused repeated EngineCore crashes (`CUDNN_STATUS_EXECUTION_FAILED_CUDA_DRIVER` in `bmm_fp8`).
 - **For maximum speed (~50 tok/s)**: use **Gemma 4 26B-A4B community + patch**.
 - **Qwen 3.6 35B-A3B RedHatAI** (~42 tok/s) remains a stable fallback if the nvidia checkpoint or nightly image are unavailable.
 - **Gemma 4 31B dense** is not viable for fast interactive use on GB10 (~7 tok/s).
@@ -121,9 +121,8 @@ For agentic workflows that ingest very long contexts (codebases, conversation hi
 --model /models/qwen3.6 \
 --trust-remote-code \
 --tensor-parallel-size 1 \
---attention-backend flashinfer \
+--attention-backend flash_attn \
 --moe-backend marlin \
---kv-cache-dtype fp8 \
 --gpu-memory-utilization 0.92 \
 --max-model-len 262144 \
 --max-num-seqs 2 \

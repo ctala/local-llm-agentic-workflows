@@ -520,12 +520,12 @@ If the result is `null`, check that the parser flags are present in the launch s
 
 ## Long-context launch scripts
 
-For agentic workloads on the Spark, Qwen 3.6 35B-A3B is served at its maximum context length (262,144 tokens) using the nvidia checkpoint and vLLM nightly. The recommended default uses 2 parallel sequences:
+For agentic workloads on the Spark, Qwen 3.6 35B-A3B is served at its maximum context length (262,144 tokens) using the nvidia checkpoint and vLLM nightly. The recommended default uses 2 parallel sequences, `--attention-backend flash_attn`, and BF16 KV cache (the previous `flashinfer` + FP8 KV cache combination caused repeated EngineCore crashes).
 
-| Script | `max_num_seqs` | `gpu-memory-utilization` | KV cache (full) | Use case |
-|--------|---------------|--------------------------|-----------------|----------|
-| `run-qwen36-35b-a3b.sh` | 2 | 0.92 | ~82 GB | **Recommended.** Two 262K sessions in parallel with headroom for LiteLLM/ASR. |
-| `run-qwen36-35b-a3b-extreme-context-2seq.sh` | 2 | 0.92 | ~82 GB | Alias to the script above for discoverability. |
+| Script | `max_num_seqs` | `gpu-memory-utilization` | KV cache (full) | Attention | Use case |
+|--------|---------------|--------------------------|-----------------|-----------|----------|
+| `run-qwen36-35b-a3b.sh` | 2 | 0.92 | ~82 GB | `flash_attn` | **Recommended.** Two 262K sessions in parallel with headroom for LiteLLM/ASR. |
+| `run-qwen36-35b-a3b-extreme-context-2seq.sh` | 2 | 0.92 | ~82 GB | `flash_attn` | Alias to the script above for discoverability. |
 
 The 2-sequence config is the best default for Hermes/OpenClaw because it leaves breathing room for auxiliary services without sacrificing much total context (524K tokens across both sessions).
 
