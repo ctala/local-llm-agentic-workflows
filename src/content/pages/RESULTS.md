@@ -31,7 +31,7 @@ Text benchmarks used a ~120-token Spanish prompt, `max_tokens=512`, temperature 
 
 | Model | Checkpoint | Framework / container | Decode tok/s | Hot TTFT | Memory | Notes |
 |-------|------------|----------------------|--------------|----------|--------|-------|
-| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~75–77** | ~0.10 s | ~22 GB | **Current recommended.** W4A16 NVFP4 (`modelopt`), `flash_attn` backend, BF16 KV cache, `qwen3_coder` parser, 262K context. |
+| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~25** | ~0.15 s | ~22 GB | **Testing.** W4A16 NVFP4 (`modelopt`), `flashinfer` backend, FP8 KV cache, `--enforce-eager`, `qwen3_coder` parser, 262K context. Trades ~50 tok/s for lower memory use and long-context stability. |
 | **Gemma 4 26B-A4B IT** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + `gemma4_patched.py` | `vllm/vllm-openai:gemma4-cu130` | **~49.5** | ~0.08 s | ~22 GB | Best raw speed for agents. Requires community patch. |
 | Qwen 3.6 35B-A3B | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~42.2 | ~0.10 s | ~22 GB | `compressed-tensors` format. Stable previous checkpoint. |
 | **Nemotron-3-Nano-Omni-30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~40.0** | ~0.10 s | **~40 GB** | **Official multimodal**: text + image work. Audio decoding still unresolved in this container. |
@@ -49,7 +49,7 @@ Text benchmarks used a ~120-token Spanish prompt, `max_tokens=512`, temperature 
 
 ### Key takeaways
 
-- **For best quality/speed balance (~75–77 tok/s)**: use **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** with `--attention-backend flash_attn` and BF16 KV cache. Also supports the model's full 262K context window and robust tool calling. The previous `flashinfer` + FP8 KV cache config caused repeated EngineCore crashes (`CUDNN_STATUS_EXECUTION_FAILED_CUDA_DRIVER` in `bmm_fp8`).
+- **For long-context stability with Qwen 3.6 35B-A3B**: the current test config uses `--attention-backend flashinfer`, FP8 KV cache and `--enforce-eager`. It keeps the full 262K context window and reduces unified-memory pressure, but benchmarked decode speed drops to **~25 tok/s** (down from ~42–45 tok/s with `flash_attn`+BF16 and ~75–77 tok/s with the original `flashinfer`+FP8 without `--enforce-eager`). The earlier `flashinfer`+FP8 crash (`CUDNN_STATUS_EXECUTION_FAILED_CUDA_DRIVER` in `bmm_fp8`) was traced to `torch.compile`/`inductor` on the V1 engine; `--enforce-eager` disables that compiled path while keeping the memory savings of FP8 KV cache.
 - **For maximum speed (~50 tok/s)**: use **Gemma 4 26B-A4B community + patch**.
 - **Qwen 3.6 35B-A3B RedHatAI** (~42 tok/s) remains a stable fallback if the nvidia checkpoint or nightly image are unavailable.
 - **Gemma 4 31B dense** is not viable for fast interactive use on GB10 (~7 tok/s).
@@ -121,7 +121,7 @@ For agentic workflows that ingest very long contexts (codebases, conversation hi
 --model /models/qwen3.6 \
 --trust-remote-code \
 --tensor-parallel-size 1 \
---attention-backend flash_attn \
+--attention-backend flashinfer \
 --moe-backend marlin \
 --gpu-memory-utilization 0.92 \
 --max-model-len 262144 \
@@ -131,6 +131,8 @@ For agentic workflows that ingest very long contexts (codebases, conversation hi
 --async-scheduling \
 --enable-prefix-caching \
 --load-format fastsafetensors \
+--kv-cache-dtype fp8 \
+--enforce-eager \
 --enable-auto-tool-choice \
 --tool-call-parser qwen3_coder \
 --reasoning-parser qwen3
@@ -214,7 +216,7 @@ python3 benchmarks/bench_model.py gemma-4-26b-a4b 512
 
 For agentic workflows on DGX Spark and similar 96–128 GB edge AI workstations:
 
-- **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** → **~75–77 tok/s**, tool calling with `qwen3_coder`, image/video support, and the model's full **262K context window** with 2 parallel sessions. **This is the current default recommendation.**
+- **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** → currently testing **~25 tok/s** with `--attention-backend flashinfer`, `--kv-cache-dtype fp8` and `--enforce-eager`. Keeps the full 262K context window, tool calling with `qwen3_coder` and lower unified-memory pressure for long contexts. The previous `flash_attn`+BF16 config gave ~42–45 tok/s but left the system near the memory limit; the original `flashinfer`+FP8 config reached ~75–77 tok/s but crashed under `torch.compile`. Choose based on whether you prioritize speed or long-context headroom.
 - **Gemma 4 26B-A4B community + patch** → ~49.5 tok/s, tool calling, low VRAM.
 - **Qwen 3.6 35B-A3B RedHatAI** → ~42.2 tok/s, stable fallback if the nvidia checkpoint or nightly image are unavailable.
 - **Qwen 3.6 35B-A3B MLP-only NVFP4** (custom TRT-LLM) → ~34.4 tok/s if you prefer the official NVIDIA stack.

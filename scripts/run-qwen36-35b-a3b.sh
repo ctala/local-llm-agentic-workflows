@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Lanza Qwen 3.6 35B-A3B NVFP4 (nvidia/Qwen3.6-35B-A3B-NVFP4) en DGX Spark.
-# Checkpoint W4A16 NVFP4 con vLLM nightly. Usa --attention-backend flash_attn
-# y KV cache BF16 (por defecto) para evitar crashes de flashinfer+FP8.
+# Checkpoint W4A16 NVFP4 con vLLM nightly. Usa --attention-backend flashinfer
+# y KV cache FP8 para reducir el uso de memoria unificada en contextos
+# largos; --enforce-eager evita el crash de torch.compile que causaba la
+# combinación flashinfer+FP8 en builds anteriores.
 # Contexto máximo del modelo (262K), tool calling robusto vía qwen3_coder
 # y dos secuencias en paralelo.
 # Requiere: ~/vllm/qwen3.6-35b-a3b-nvfp4-nvidia
@@ -46,7 +48,7 @@ VLLM_ARGS=(
   --host 0.0.0.0 --port "${PORT}"
   --trust-remote-code
   --tensor-parallel-size 1
-  --attention-backend flash_attn
+  --attention-backend flashinfer
   --moe-backend marlin
   --gpu-memory-utilization "${GPU_UTIL}"
   --max-model-len 262144
@@ -57,6 +59,8 @@ VLLM_ARGS=(
   --enable-prefix-caching
   --limit-mm-per-prompt '{"image":4}'
   --load-format fastsafetensors
+  --kv-cache-dtype fp8
+  --enforce-eager
   --reasoning-parser qwen3
   --tool-call-parser qwen3_coder
   --enable-auto-tool-choice

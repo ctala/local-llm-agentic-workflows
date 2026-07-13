@@ -520,12 +520,12 @@ If the result is `null`, check that the parser flags are present in the launch s
 
 ## Long-context launch scripts
 
-For agentic workloads on the Spark, Qwen 3.6 35B-A3B is served at its maximum context length (262,144 tokens) using the nvidia checkpoint and vLLM nightly. The recommended default uses 2 parallel sequences, `--attention-backend flash_attn`, and BF16 KV cache (the previous `flashinfer` + FP8 KV cache combination caused repeated EngineCore crashes).
+For agentic workloads on the Spark, Qwen 3.6 35B-A3B is served at its maximum context length (262,144 tokens) using the nvidia checkpoint and vLLM nightly. The recommended default uses 2 parallel sequences, `--attention-backend flashinfer`, `--kv-cache-dtype fp8` and `--enforce-eager` (the earlier `flashinfer` + FP8 crash was caused by `torch.compile`/`inductor`; `--enforce-eager` disables that compiled path while keeping the memory savings).
 
-| Script | `max_num_seqs` | `gpu-memory-utilization` | KV cache (full) | Attention | Use case |
-|--------|---------------|--------------------------|-----------------|-----------|----------|
-| `run-qwen36-35b-a3b.sh` | 2 | 0.92 | ~82 GB | `flash_attn` | **Recommended.** Two 262K sessions in parallel with headroom for LiteLLM/ASR. |
-| `run-qwen36-35b-a3b-extreme-context-2seq.sh` | 2 | 0.92 | ~82 GB | `flash_attn` | Alias to the script above for discoverability. |
+| Script | `max_num_seqs` | `gpu-memory-utilization` | KV cache (full) | Attention | Decode tok/s | Use case |
+|--------|---------------|--------------------------|-----------------|-----------|--------------|----------|
+| `run-qwen36-35b-a3b.sh` | 2 | 0.92 | ~41 GB | `flashinfer` + FP8 + eager | **~25** | **Testing.** Two 262K sessions in parallel with headroom for LiteLLM/ASR. |
+| `run-qwen36-35b-a3b-extreme-context-2seq.sh` | 2 | 0.92 | ~41 GB | `flashinfer` + FP8 + eager | **~25** | Alias to the script above for discoverability. |
 
 The 2-sequence config is the best default for Hermes/OpenClaw because it leaves breathing room for auxiliary services without sacrificing much total context (524K tokens across both sessions).
 
@@ -806,6 +806,22 @@ Fix:
 - The vLLM Qwen 3.6 35B-A3B container uses ~119–120 GB of the 121 GB unified memory.
 - LiteLLM itself is lightweight, but running additional local services (llama-server, Ollama, etc.) can push the system over the edge.
 - Stop unused model services before starting another large model.
+
+### LiteLLM / Hermes times out after ~600 s on long contexts
+
+Symptom: LiteLLM returns `HTTP 500` with `Timeout on reading data from socket` or `MidStreamFallbackError` after ~600 s, while vLLM eventually completes the request.
+
+What we observed with Qwen 3.6 35B-A3B and a 154K-token context:
+
+- vLLM did **not** crash; it returned `200 OK` several minutes after LiteLLM gave up.
+- The Spark's unified memory was saturated (~120 GiB used / 121 GiB total, ~12 GiB swap in use), so vLLM slowed down enough to exceed LiteLLM's `request_timeout: 600`.
+- With KV cache in BF16 the system had almost no headroom; switching to FP8 KV cache roughly halves KV-cache memory use.
+
+Mitigations:
+
+1. Reduce KV-cache memory pressure: use `--attention-backend flashinfer --kv-cache-dtype fp8` (currently tested with `--enforce-eager` for stability).
+2. Increase LiteLLM's `request_timeout` if you regularly hit 600 s, but fix the memory/swap cause first.
+3. Keep auxiliary services (Ollama, llama-server, etc.) stopped when running large-context workloads.
 
 ### Hermes prints `<tool_call>` but does not execute the tool
 
