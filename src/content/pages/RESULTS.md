@@ -31,7 +31,7 @@ Text benchmarks used a ~120-token Spanish prompt, `max_tokens=512`, temperature 
 
 | Model | Checkpoint | Framework / container | Decode tok/s | Hot TTFT | Memory | Notes |
 |-------|------------|----------------------|--------------|----------|--------|-------|
-| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~25** | ~0.15 s | ~22 GB | **Testing.** W4A16 NVFP4 (`modelopt`), `flashinfer` backend, FP8 KV cache, `--enforce-eager`, `qwen3_coder` parser, 262K context. Trades ~50 tok/s for lower memory use and long-context stability. |
+| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~76** | ~0.10 s | ~22 GB | **Current recommended.** W4A16 NVFP4 (`modelopt`), `flashinfer` backend, FP8 KV cache, Marlin NVFP4 backend for SM121, `qwen3_coder` parser, 196K context, 1 sequence. Recovers the original ~75–77 tok/s while keeping memory use in check for long contexts. |
 | **Gemma 4 26B-A4B IT** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + `gemma4_patched.py` | `vllm/vllm-openai:gemma4-cu130` | **~49.5** | ~0.08 s | ~22 GB | Best raw speed for agents. Requires community patch. |
 | Qwen 3.6 35B-A3B | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~42.2 | ~0.10 s | ~22 GB | `compressed-tensors` format. Stable previous checkpoint. |
 | **Nemotron-3-Nano-Omni-30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~40.0** | ~0.10 s | **~40 GB** | **Official multimodal**: text + image work. Audio decoding still unresolved in this container. |
@@ -49,7 +49,7 @@ Text benchmarks used a ~120-token Spanish prompt, `max_tokens=512`, temperature 
 
 ### Key takeaways
 
-- **For long-context stability with Qwen 3.6 35B-A3B**: the current test config uses `--attention-backend flashinfer`, FP8 KV cache and `--enforce-eager`. It keeps the full 262K context window and reduces unified-memory pressure, but benchmarked decode speed drops to **~25 tok/s** (down from ~42–45 tok/s with `flash_attn`+BF16 and ~75–77 tok/s with the original `flashinfer`+FP8 without `--enforce-eager`). The earlier `flashinfer`+FP8 crash (`CUDNN_STATUS_EXECUTION_FAILED_CUDA_DRIVER` in `bmm_fp8`) was traced to `torch.compile`/`inductor` on the V1 engine; `--enforce-eager` disables that compiled path while keeping the memory savings of FP8 KV cache.
+- **For best quality/speed balance (~76 tok/s)**: use **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** with `--attention-backend flashinfer`, `--kv-cache-dtype fp8`, `--moe-backend marlin`, `VLLM_TEST_FORCE_FP8_MARLIN=1` and `VLLM_MARLIN_USE_ATOMIC_ADD=1`. The Marlin backend avoids the broken CUTLASS FP4 path on GB10/SM121 and lets vLLM use `torch.compile`/`CUDAGraph` without the `bmm_fp8` crash we saw earlier. For long-context headroom we run **196K context with 1 concurrent sequence** (down from 262K/2). This keeps ~75–76 tok/s while leaving enough unified memory for a ~180K-token agent session.
 - **For maximum speed (~50 tok/s)**: use **Gemma 4 26B-A4B community + patch**.
 - **Qwen 3.6 35B-A3B RedHatAI** (~42 tok/s) remains a stable fallback if the nvidia checkpoint or nightly image are unavailable.
 - **Gemma 4 31B dense** is not viable for fast interactive use on GB10 (~7 tok/s).
@@ -124,18 +124,24 @@ For agentic workflows that ingest very long contexts (codebases, conversation hi
 --attention-backend flashinfer \
 --moe-backend marlin \
 --gpu-memory-utilization 0.92 \
---max-model-len 262144 \
---max-num-seqs 2 \
+--max-model-len 196608 \
+--max-num-seqs 1 \
 --max-num-batched-tokens 32768 \
 --enable-chunked-prefill \
 --async-scheduling \
 --enable-prefix-caching \
 --load-format fastsafetensors \
 --kv-cache-dtype fp8 \
---enforce-eager \
 --enable-auto-tool-choice \
 --tool-call-parser qwen3_coder \
 --reasoning-parser qwen3
+```
+
+Environment variables passed to the container:
+
+```bash
+-e VLLM_TEST_FORCE_FP8_MARLIN=1 \
+-e VLLM_MARLIN_USE_ATOMIC_ADD=1
 ```
 
 The **2-session configuration is the recommended default** because it leaves headroom for LiteLLM, ASR and other auxiliary services while still supporting two 262K sessions in parallel. We previously tested a 3-session config with the older RedHatAI checkpoint, but it left only ~1–2 GB of free unified memory and made the system vulnerable to memory spikes; it has not been re-validated with the newer nvidia checkpoint + vLLM nightly.
@@ -216,7 +222,7 @@ python3 benchmarks/bench_model.py gemma-4-26b-a4b 512
 
 For agentic workflows on DGX Spark and similar 96–128 GB edge AI workstations:
 
-- **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** → currently testing **~25 tok/s** with `--attention-backend flashinfer`, `--kv-cache-dtype fp8` and `--enforce-eager`. Keeps the full 262K context window, tool calling with `qwen3_coder` and lower unified-memory pressure for long contexts. The previous `flash_attn`+BF16 config gave ~42–45 tok/s but left the system near the memory limit; the original `flashinfer`+FP8 config reached ~75–77 tok/s but crashed under `torch.compile`. Choose based on whether you prioritize speed or long-context headroom.
+- **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** → **~76 tok/s** with `--attention-backend flashinfer`, `--kv-cache-dtype fp8`, `--moe-backend marlin`, `VLLM_TEST_FORCE_FP8_MARLIN=1` and `VLLM_MARLIN_USE_ATOMIC_ADD=1`. Tool calling with `qwen3_coder`, image/video support, and **196K context** with 1 sequence — enough headroom for ~180K-token agent sessions on the Spark. **This is the current default recommendation.**
 - **Gemma 4 26B-A4B community + patch** → ~49.5 tok/s, tool calling, low VRAM.
 - **Qwen 3.6 35B-A3B RedHatAI** → ~42.2 tok/s, stable fallback if the nvidia checkpoint or nightly image are unavailable.
 - **Qwen 3.6 35B-A3B MLP-only NVFP4** (custom TRT-LLM) → ~34.4 tok/s if you prefer the official NVIDIA stack.

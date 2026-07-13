@@ -36,7 +36,7 @@ The LiteLLM proxy binds to `0.0.0.0:4000` and exposes all configured backends un
 
 Hermes supports custom OpenAI-compatible endpoints. The cleanest setup for the Spark is to use **one provider that points to the LiteLLM proxy**; LiteLLM then exposes whichever model is currently loaded (Qwen, Gemma, Nemotron, etc.) under a single URL.
 
-> **Important:** LiteLLM's `/v1/models` endpoint does not report `max_tokens`/`context_length` for custom OpenAI-compatible backends. If you do not set `model.context_length` (and the per-model `context_length` below), Hermes falls back to its built-in family defaults and shows **131,072 tokens** instead of the real **262,144**.
+> **Important:** LiteLLM's `/v1/models` endpoint does not report `max_tokens`/`context_length` for custom OpenAI-compatible backends. If you do not set `model.context_length` (and the per-model `context_length` below), Hermes falls back to its built-in family defaults and shows **131,072 tokens** instead of the real **196,608**.
 
 Add this to `~/.hermes/config.yaml`:
 
@@ -44,7 +44,7 @@ Add this to `~/.hermes/config.yaml`:
 model:
   default: qwen3.6-35b-a3b-vllm
   provider: litellm-local
-  context_length: 262144
+  context_length: 196608
 
 providers:
   litellm-local:
@@ -54,9 +54,9 @@ providers:
     discover_models: false
     models:
       qwen3.6-35b-a3b-vllm:
-        context_length: 262144
+        context_length: 196608
       qwen3.6-35b-a3b-vllm-fast:
-        context_length: 262144
+        context_length: 196608
 ```
 
 Because LiteLLM auth is disabled, any non-empty `api_key` works (`sk-spark-local` is just a placeholder).
@@ -118,8 +118,8 @@ Add a single LiteLLM provider and select the active model:
         }
       },
       "models": {
-        "qwen3.6-35b-a3b-vllm": { "name": "Qwen3.6 35B-A3B vLLM (think, 262K)" },
-        "qwen3.6-35b-a3b-vllm-fast": { "name": "Qwen3.6 35B-A3B vLLM (no think, 262K)" }
+        "qwen3.6-35b-a3b-vllm": { "name": "Qwen3.6 35B-A3B vLLM (think, 196K)" },
+        "qwen3.6-35b-a3b-vllm-fast": { "name": "Qwen3.6 35B-A3B vLLM (no think, 196K)" }
       }
     }
   },
@@ -155,7 +155,7 @@ Example `~/litellm/config.yaml`:
 
 ```yaml
 model_list:
-  # vLLM Qwen 3.6 35B-A3B (262K context)
+  # vLLM Qwen 3.6 35B-A3B (196K context)
   - model_name: qwen3.6-35b-a3b-vllm
     litellm_params:
       model: openai/qwen3.6-35b-a3b
@@ -164,8 +164,8 @@ model_list:
     model_info:
       mode: chat
       supports_vision: true
-      max_input_tokens: 262144
-      max_tokens: 262144
+      max_input_tokens: 196608
+      max_tokens: 196608
 
   - model_name: qwen3.6-35b-a3b-vllm-fast
     litellm_params:
@@ -178,8 +178,8 @@ model_list:
     model_info:
       mode: chat
       supports_vision: true
-      max_input_tokens: 262144
-      max_tokens: 262144
+      max_input_tokens: 196608
+      max_tokens: 196608
 
 litellm_settings:
   drop_params: true
@@ -351,7 +351,7 @@ On the remote PC, use a single LiteLLM provider and switch models with `-m`:
 model:
   default: qwen3.6-35b-a3b-vllm
   provider: litellm-remote
-  context_length: 262144
+  context_length: 196608
 
 providers:
   litellm-remote:
@@ -361,9 +361,9 @@ providers:
     discover_models: false
     models:
       qwen3.6-35b-a3b-vllm:
-        context_length: 262144
+        context_length: 196608
       qwen3.6-35b-a3b-vllm-fast:
-        context_length: 262144
+        context_length: 196608
 ```
 
 Run with the default (thinking) model:
@@ -520,14 +520,14 @@ If the result is `null`, check that the parser flags are present in the launch s
 
 ## Long-context launch scripts
 
-For agentic workloads on the Spark, Qwen 3.6 35B-A3B is served at its maximum context length (262,144 tokens) using the nvidia checkpoint and vLLM nightly. The recommended default uses 2 parallel sequences, `--attention-backend flashinfer`, `--kv-cache-dtype fp8` and `--enforce-eager` (the earlier `flashinfer` + FP8 crash was caused by `torch.compile`/`inductor`; `--enforce-eager` disables that compiled path while keeping the memory savings).
+For agentic workloads on the Spark, Qwen 3.6 35B-A3B is served with the nvidia checkpoint and vLLM nightly. The recommended default uses `--attention-backend flashinfer`, `--kv-cache-dtype fp8` and the **Marlin backend for NVFP4 on SM121** (set via `VLLM_TEST_FORCE_FP8_MARLIN=1` and `VLLM_MARLIN_USE_ATOMIC_ADD=1`). Marlin avoids the broken CUTLASS FP4 path on GB10 and lets vLLM use `torch.compile`/`CUDAGraph` without the `bmm_fp8` crash. To leave headroom for long agent sessions we run **196K context with 1 concurrent sequence** (down from the model's hard 262K limit).
 
-| Script | `max_num_seqs` | `gpu-memory-utilization` | KV cache (full) | Attention | Decode tok/s | Use case |
-|--------|---------------|--------------------------|-----------------|-----------|--------------|----------|
-| `run-qwen36-35b-a3b.sh` | 2 | 0.92 | ~41 GB | `flashinfer` + FP8 + eager | **~25** | **Testing.** Two 262K sessions in parallel with headroom for LiteLLM/ASR. |
-| `run-qwen36-35b-a3b-extreme-context-2seq.sh` | 2 | 0.92 | ~41 GB | `flashinfer` + FP8 + eager | **~25** | Alias to the script above for discoverability. |
+| Script | `max_num_seqs` | `gpu-memory-utilization` | Context | Attention | Decode tok/s | Use case |
+|--------|---------------|--------------------------|---------|-----------|--------------|----------|
+| `run-qwen36-35b-a3b.sh` | 1 | 0.92 | 196K | `flashinfer` + FP8 + Marlin | **~76** | **Recommended.** Single long-context session (~180K tokens) with headroom for LiteLLM/ASR. |
+| `run-qwen36-35b-a3b-extreme-context-2seq.sh` | 1 | 0.92 | 196K | `flashinfer` + FP8 + Marlin | **~76** | Alias to the script above for discoverability. |
 
-The 2-sequence config is the best default for Hermes/OpenClaw because it leaves breathing room for auxiliary services without sacrificing much total context (524K tokens across both sessions).
+The 1-sequence/196K config is the best default for Hermes/OpenClaw because it covers real agent sessions up to ~180K tokens while leaving breathing room for auxiliary services.
 
 Start the recommended config:
 
@@ -541,8 +541,8 @@ With the current vLLM-only setup on the Spark, the usable Qwen 3.6 35B-A3B alias
 
 | Alias | Backend | Context | Thinking | Use case |
 |-------|---------|---------|----------|----------|
-| `qwen3.6-35b-a3b-vllm` | LiteLLM → vLLM | 262K | enabled | Reasoning mode (hard tasks, planning) |
-| `qwen3.6-35b-a3b-vllm-fast` | LiteLLM → vLLM | 262K | disabled | Non-reasoning mode (fast routine turns) |
+| `qwen3.6-35b-a3b-vllm` | LiteLLM → vLLM | 196K | enabled | Reasoning mode (hard tasks, planning) |
+| `qwen3.6-35b-a3b-vllm-fast` | LiteLLM → vLLM | 196K | disabled | Non-reasoning mode (fast routine turns) |
 
 For agentic work that benefits from reasoning, use the `*-vllm` variant. For faster, non-reasoning turns, use `*-vllm-fast`.
 
@@ -786,19 +786,19 @@ Everything stays on the Spark.
 - Verify fastCRW is running: `curl http://localhost:3000/health`
 - Check that nothing else is bound to port 8000, 4000, 8080 or 3000.
 
-### Context length shows 131,072 instead of 262,144 in Hermes
+### Context length shows 131,072 instead of 196,608 in Hermes
 
 This happens because LiteLLM's `/v1/models` response does not include `max_tokens` for OpenAI-compatible backends, so Hermes falls back to its generic `qwen` family default (131K).
 
 Fix:
 
-1. Set `model.context_length: 262144` in `~/.hermes/config.yaml`.
-2. Also set `context_length: 262144` under each model in `providers.litellm-local.models`.
+1. Set `model.context_length: 196608` in `~/.hermes/config.yaml`.
+2. Also set `context_length: 196608` under each model in `providers.litellm-local.models`.
 3. Restart the gateway: `systemctl --user restart hermes-gateway.service`.
 
 ### Context length errors
 
-- Make sure `context_length` in Hermes matches the model's real limit (262144 for Qwen 3.6 35B-A3B).
+- Make sure `context_length` in Hermes matches the model's real limit (196608 for Qwen 3.6 35B-A3B).
 - In Opencode, set `max_input_tokens` in the LiteLLM `model_info` if needed.
 
 ### Out of memory when using multiple frameworks
@@ -819,7 +819,7 @@ What we observed with Qwen 3.6 35B-A3B and a 154K-token context:
 
 Mitigations:
 
-1. Reduce KV-cache memory pressure: use `--attention-backend flashinfer --kv-cache-dtype fp8` (currently tested with `--enforce-eager` for stability).
+1. Reduce KV-cache memory pressure: use `--attention-backend flashinfer --kv-cache-dtype fp8` without `--enforce-eager` so torch.compile/CUDAGraph stay active.
 2. Increase LiteLLM's `request_timeout` if you regularly hit 600 s, but fix the memory/swap cause first.
 3. Keep auxiliary services (Ollama, llama-server, etc.) stopped when running large-context workloads.
 
@@ -833,7 +833,7 @@ Fix:
 2. Confirm the launch script includes:
    ```bash
    --enable-auto-tool-choice \
-   --tool-call-parser qwen3_xml \
+   --tool-call-parser qwen3_coder \
    --reasoning-parser qwen3
    ```
 3. Restart the container and verify with the curl test in the "Tool calling with Qwen 3.6" section above.

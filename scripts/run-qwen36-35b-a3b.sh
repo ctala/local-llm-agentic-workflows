@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Lanza Qwen 3.6 35B-A3B NVFP4 (nvidia/Qwen3.6-35B-A3B-NVFP4) en DGX Spark.
-# Checkpoint W4A16 NVFP4 con vLLM nightly. Usa --attention-backend flashinfer
-# y KV cache FP8 para reducir el uso de memoria unificada en contextos
-# largos; --enforce-eager evita el crash de torch.compile que causaba la
-# combinación flashinfer+FP8 en builds anteriores.
-# Contexto máximo del modelo (262K), tool calling robusto vía qwen3_coder
-# y dos secuencias en paralelo.
+# Checkpoint W4A16 NVFP4 con vLLM nightly. Usa flashinfer + KV cache FP8 +
+# backend Marlin para NVFP4 en SM121 (DGX Spark); el backend Marlin evita
+# el fallback lento/inestable de los kernels CUTLASS FP4 de FlashInfer.
+# Sin --enforce-eager, recupera CUDA graphs + torch.compile.
+# Contexto máximo 192K (cubre uso real ~180K) con 1 secuencia para dejar
+# margen de memoria unificada y evitar swap en contextos largos.
+# Tool calling robusto vía qwen3_coder.
 # Requiere: ~/vllm/qwen3.6-35b-a3b-nvfp4-nvidia
 #
 # Uso interactivo: ./scripts/run-qwen36-35b-a3b.sh
@@ -40,6 +41,8 @@ DOCKER_ARGS=(
   -v "${CHAT_TEMPLATE_DIR}:/chat-templates"
   -e HF_HOME=/models
   -e VLLM_TARGET_DEVICE=cuda
+  -e VLLM_TEST_FORCE_FP8_MARLIN=1
+  -e VLLM_MARLIN_USE_ATOMIC_ADD=1
 )
 
 VLLM_ARGS=(
@@ -51,8 +54,8 @@ VLLM_ARGS=(
   --attention-backend flashinfer
   --moe-backend marlin
   --gpu-memory-utilization "${GPU_UTIL}"
-  --max-model-len 262144
-  --max-num-seqs 2
+  --max-model-len 196608
+  --max-num-seqs 1
   --max-num-batched-tokens 32768
   --enable-chunked-prefill
   --async-scheduling
@@ -60,7 +63,6 @@ VLLM_ARGS=(
   --limit-mm-per-prompt '{"image":4}'
   --load-format fastsafetensors
   --kv-cache-dtype fp8
-  --enforce-eager
   --reasoning-parser qwen3
   --tool-call-parser qwen3_coder
   --enable-auto-tool-choice
