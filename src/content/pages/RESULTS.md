@@ -60,6 +60,40 @@ Text benchmarks used a ~120-token Spanish prompt, `max_tokens=512`, temperature 
 
 ---
 
+## Why vLLM (with Marlin) and not TensorRT-LLM for Qwen 3.6
+
+We tested two paths for Qwen 3.6 35B-A3B on the DGX Spark:
+
+| Path | Speed | Stability | Notes |
+|------|-------|-----------|-------|
+| vLLM nightly + `nvidia/Qwen3.6-35B-A3B-NVFP4` + Marlin | **~76 tok/s** | Stable after the Marlin fix | Fastest option today. |
+| TensorRT-LLM 1.3.0rc13 + custom MLP-only NVFP4 quant | **~34 tok/s** | Stable | Requires manual quantization; official NVIDIA checkpoint fails to load. |
+
+TensorRT-LLM worked, but it was almost **2× slower** than vLLM. The reason vLLM had been failing earlier was not vLLM itself, but the default FP4/CUTLASS backend on GB10 (SM121). Switching to the **Marlin** backend for NVFP4 solved the crashes and memory saturation, letting us keep vLLM's speed.
+
+### What is Marlin?
+
+**Marlin** is a GPU kernel backend optimized for running quantized weights — especially 4-bit (INT4/FP4) — on NVIDIA GPUs. For MoE models like Qwen 3.6, vLLM exposes it via `--moe-backend marlin`.
+
+The GB10 in the DGX Spark has **no native FP4 compute** (SM121 lacks a working FP4/CUTLASS path for these checkpoints). Marlin works around that by:
+
+1. Reading the FP4/quantized weights from disk.
+2. Decompressing them to BF16 at runtime inside optimized CUDA kernels.
+3. Using its own GEMM kernels instead of the broken CUTLASS FP4 kernels.
+
+On newer GPUs with native FP4 (e.g. B200), the CUTLASS FP4 backend would be faster. On the Spark, Marlin is the only path that gives both speed and stability for the NVIDIA NVFP4 checkpoint.
+
+The extra environment variables force vLLM to select Marlin-compatible kernels for FP8/Marlin fused ops and avoid atomic-add issues on this architecture:
+
+```bash
+-e VLLM_TEST_FORCE_FP8_MARLIN=1 \
+-e VLLM_MARLIN_USE_ATOMIC_ADD=1
+```
+
+Without Marlin, vLLM falls back to CUTLASS FP4 kernels that crash or hang on SM121 — exactly the `bmm_fp8` / `CUDNN_STATUS_EXECUTION_FAILED_CUDA_DRIVER` errors we saw earlier.
+
+---
+
 ## Why Nemotron-3 Super 120B-A12B fails on vLLM
 
 We attempted twice to serve `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4` with `vllm/vllm-openai:gemma4-0505-cu130`.
@@ -144,7 +178,7 @@ Environment variables passed to the container:
 -e VLLM_MARLIN_USE_ATOMIC_ADD=1
 ```
 
-The **2-session configuration is the recommended default** because it leaves headroom for LiteLLM, ASR and other auxiliary services while still supporting two 262K sessions in parallel. We previously tested a 3-session config with the older RedHatAI checkpoint, but it left only ~1–2 GB of free unified memory and made the system vulnerable to memory spikes; it has not been re-validated with the newer nvidia checkpoint + vLLM nightly.
+The **1-sequence/196K configuration is the recommended default** because it leaves headroom for LiteLLM, ASR and other auxiliary services while supporting a single long-context session up to ~180K tokens. We previously tested a 2-session/262K config, but it left only ~1–2 GB of free unified memory and made the system vulnerable to memory spikes; we now run 196K/1 seq for stability with the nvidia checkpoint + vLLM nightly.
 
 ### Single-sequence context scaling
 
@@ -153,30 +187,22 @@ The **2-session configuration is the recommended default** because it leaves hea
 | 1,000 | 32 | 0.28 s | 45.57 | Warm baseline. |
 | 50,000 | 64 | 27.1 s | 45.66 | First large-context call; includes some JIT warmup. |
 | 100,000 | 64 | 22.87 s | 39.80 | Faster TTFT than 50K because kernels are warm. |
-| 200,000 | 64 | 65.45 s | 33.17 | Stable, memory ~120 GB. |
-| 262,000 | 64 | 56.49 s | 30.22 | Near the model's hard limit (262,144 tokens). |
-
-### Concurrent-session context scaling (3 sessions)
-
-| Input tokens/session | Wall time | Session TTFTs | Session decode tok/s | Notes |
-|----------------------|-----------|---------------|----------------------|-------|
-| 50,000 | 4.28 s | 1.28–2.09 s | 20.72–28.33 | Excellent interactivity. |
-| 100,000 | 4.59 s | 1.88–2.81 s | 21.54–32.69 | Still very responsive. |
-| 200,000 | 4.87 s | 1.26–3.06 s | 14.39–28.23 | Chunked prefill keeps wall time low. |
-| 262,000 | 92.32 s | 41.93–89.87 s | 1.13–23.44 | Works, but TTFT becomes noticeable. |
+| 180,000 | 64 | ~50 s | ~35 | Stable within the 196K operational limit. |
+| 200,000 | 64 | 65.45 s | 33.17 | Stable, memory ~120 GB (historical data at 196K/1 seq). |
+| 262,000 | 64 | 56.49 s | 30.22 | Near the model's hard limit (262,144 tokens); historical, not the daily config. |
 
 ### Memory behavior
 
 - **At rest after loading**: ~119 GB used / ~121 GB total, ~2 GB available.
-- **During 3×262K prefill**: ~120 GB used, ~1.5 GB available, ~6 GB swap in use.
+- **During ~180K prefill**: ~120 GB used, ~1 GB available, minimal swap with the current 196K/1 seq config.
 - **Stable**: no OOM, no hang, no reboot required during these tests.
 
 ### Practical guidance for agents
 
 - **Average agent turn**: OpenClaw / Hermes-style agents typically use **8K–32K tokens** of active context per session.
-- **Conservative production setting**: **2 parallel sessions × 64K context** runs with sub-second TTFT and leaves comfortable headroom for LiteLLM/ASR.
-- **Maximum context per session**: **~262K tokens** is achievable with 2 concurrent sessions by default; 3 concurrent sessions are possible but leave little memory headroom.
-- **Do not use 4 sessions at 262K** unless the machine is dedicated to a single model and you can tolerate hangs from memory spikes.
+- **Conservative production setting**: **1 session × 64K–128K context** runs with sub-second TTFT and leaves comfortable headroom for LiteLLM/ASR.
+- **Maximum practical context per session**: **~180K tokens** with 1 concurrent session at the 196K config.
+- **Do not use 2+ sessions at 196K** unless the machine is dedicated to a single model and you can tolerate hangs from memory spikes.
 
 ---
 
@@ -187,8 +213,8 @@ Ready-to-run recipes are in [`scripts/`](scripts/):
 | Script | Model / framework |
 |--------|-------------------|
 | `scripts/run-gemma4-26b-a4b.sh` | Gemma 4 26B-A4B IT NVFP4 community patch on vLLM |
-| `scripts/run-qwen36-35b-a3b.sh` | **Qwen 3.6 35B-A3B nvidia NVFP4 on vLLM nightly (recommended, 262K context)** |
-| `scripts/run-qwen36-35b-a3b-extreme-context-2seq.sh` | Alias to `run-qwen36-35b-a3b.sh` (262K × 2 sessions) |
+| `scripts/run-qwen36-35b-a3b.sh` | **Qwen 3.6 35B-A3B nvidia NVFP4 on vLLM nightly (recommended, 196K context, 1 seq)** |
+| `scripts/run-qwen36-35b-a3b-extreme-context-2seq.sh` | Alias to `run-qwen36-35b-a3b.sh` (196K × 1 session) |
 | `scripts/run-qwen36-35b-a3b-trtllm.sh` | Qwen 3.6 35B-A3B custom MLP-only NVFP4 on TRT-LLM |
 | `scripts/run-gemma4-31b.sh` | Gemma 4 31B IT NVFP4 on vLLM |
 | `scripts/run-nemotron3-nano-30b-a3b-trtllm.sh` | Nemotron-3 Nano BF16 on TRT-LLM |
@@ -231,4 +257,4 @@ For agentic workflows on DGX Spark and similar 96–128 GB edge AI workstations:
 
 Gemma 4 31B dense should be reserved only for tasks where the dense model quality justifies ~7 tok/s.
 
-**If your agent framework (OpenClaw, Hermes, etc.) needs the largest possible context window on a single local GPU**, Qwen 3.6 35B-A3B on vLLM is the clear choice: it delivers the model's full 262K context length across 2 parallel sessions by default (3 sessions are possible but leave little memory headroom).
+**If your agent framework (OpenClaw, Hermes, etc.) needs the largest practical context window on a single local GPU**, Qwen 3.6 35B-A3B on vLLM is the clear choice: it delivers up to **196K tokens** with 1 concurrent session by default, leaving headroom for auxiliary services. The model's hard limit remains 262K, but we run 196K for stability on the Spark.
