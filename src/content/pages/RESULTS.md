@@ -31,7 +31,7 @@ Text benchmarks used a ~120-token Spanish prompt, `max_tokens=512`, temperature 
 
 | Model | Checkpoint | Framework / container | Decode tok/s | Hot TTFT | Memory | Notes |
 |-------|------------|----------------------|--------------|----------|--------|-------|
-| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~76** | ~0.10 s | ~22 GB | **Current recommended.** W4A16 NVFP4 (`modelopt`), `flashinfer` backend, FP8 KV cache, Marlin NVFP4 backend for SM121, `qwen3_coder` parser, 240K context, 1 sequence. Recovers the original ~75–77 tok/s while keeping memory use in check for long contexts. |
+| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~76** | ~0.10 s | ~22 GB | **Current recommended.** W4A16 NVFP4 (`modelopt`), `flashinfer` backend, FP8 KV cache, Marlin NVFP4 backend for SM121, `qwen3_coder` parser, **262K context**, 1 sequence. Recovers the original ~75–77 tok/s while using the model's full context window. |
 | **Gemma 4 26B-A4B IT** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + `gemma4_patched.py` | `vllm/vllm-openai:gemma4-cu130` | **~49.5** | ~0.08 s | ~22 GB | Best raw speed for agents. Requires community patch. |
 | Qwen 3.6 35B-A3B | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~42.2 | ~0.10 s | ~22 GB | `compressed-tensors` format. Stable previous checkpoint. |
 | **Nemotron-3-Nano-Omni-30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~40.0** | ~0.10 s | **~40 GB** | **Official multimodal**: text + image work. Audio decoding still unresolved in this container. |
@@ -49,7 +49,7 @@ Text benchmarks used a ~120-token Spanish prompt, `max_tokens=512`, temperature 
 
 ### Key takeaways
 
-- **For best quality/speed balance (~76 tok/s)**: use **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** with `--attention-backend flashinfer`, `--kv-cache-dtype fp8`, `--moe-backend marlin`, `VLLM_TEST_FORCE_FP8_MARLIN=1` and `VLLM_MARLIN_USE_ATOMIC_ADD=1`. The Marlin backend avoids the broken CUTLASS FP4 path on GB10/SM121 and lets vLLM use `torch.compile`/`CUDAGraph` without the `bmm_fp8` crash we saw earlier. For long-context headroom we run **240K context with 1 concurrent sequence** (down from 262K). This keeps ~75–76 tok/s while leaving enough unified memory for a ~220K-token agent session.
+- **For best quality/speed balance (~76 tok/s)**: use **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** with `--attention-backend flashinfer`, `--kv-cache-dtype fp8`, `--moe-backend marlin`, `VLLM_TEST_FORCE_FP8_MARLIN=1` and `VLLM_MARLIN_USE_ATOMIC_ADD=1`. The Marlin backend avoids the broken CUTLASS FP4 path on GB10/SM121 and lets vLLM use `torch.compile`/`CUDAGraph` without the `bmm_fp8` crash we saw earlier. With `--max-num-seqs 1` we run the model's full **262,144-token context window**. This keeps ~75–76 tok/s while giving agents ~237K tokens of input budget plus 25K of output headroom.
 - **For maximum speed (~50 tok/s)**: use **Gemma 4 26B-A4B community + patch**.
 - **Qwen 3.6 35B-A3B RedHatAI** (~42 tok/s) remains a stable fallback if the nvidia checkpoint or nightly image are unavailable.
 - **Gemma 4 31B dense** is not viable for fast interactive use on GB10 (~7 tok/s).
@@ -158,7 +158,7 @@ For agentic workflows that ingest very long contexts (codebases, conversation hi
 --attention-backend flashinfer \
 --moe-backend marlin \
 --gpu-memory-utilization 0.92 \
---max-model-len 240000 \
+--max-model-len 262144 \
 --max-num-seqs 1 \
 --max-num-batched-tokens 32768 \
 --enable-chunked-prefill \
@@ -167,8 +167,7 @@ For agentic workflows that ingest very long contexts (codebases, conversation hi
 --load-format fastsafetensors \
 --kv-cache-dtype fp8 \
 --enable-auto-tool-choice \
---tool-call-parser qwen3_coder \
---reasoning-parser qwen3
+--tool-call-parser qwen3_coder
 ```
 
 Environment variables passed to the container:
@@ -178,7 +177,7 @@ Environment variables passed to the container:
 -e VLLM_MARLIN_USE_ATOMIC_ADD=1
 ```
 
-The **1-sequence/240K configuration is the recommended default** because it leaves headroom for LiteLLM, ASR and other auxiliary services while supporting a single long-context session up to ~220K tokens. We previously tested a 2-session/262K config, but it left only ~1–2 GB of free unified memory and made the system vulnerable to memory spikes; we now run 240K/1 seq for stability with the nvidia checkpoint + vLLM nightly.
+The **1-sequence/262K configuration is the recommended default** because it uses the model's full context window (`262,144` tokens) with a single concurrent sequence. We reserve `237K` tokens for input and `25K` for output to avoid `ContextWindowExceededError` on long agent sessions. Earlier iterations ran 240K/1 seq to leave extra memory headroom; after measuring memory use we moved to the full 262K window while keeping `--max-num-seqs 1`.
 
 ### Single-sequence context scaling
 
@@ -187,22 +186,22 @@ The **1-sequence/240K configuration is the recommended default** because it leav
 | 1,000 | 32 | 0.28 s | 45.57 | Warm baseline. |
 | 50,000 | 64 | 27.1 s | 45.66 | First large-context call; includes some JIT warmup. |
 | 100,000 | 64 | 22.87 s | 39.80 | Faster TTFT than 50K because kernels are warm. |
-| 180,000 | 64 | ~50 s | ~35 | Stable within the 240K operational limit. |
+| 180,000 | 64 | ~50 s | ~35 | Stable within the 262K operational limit. |
 | 200,000 | 64 | 65.45 s | 33.17 | Stable, memory ~120 GB (historical data at 240K/1 seq). |
-| 262,000 | 64 | 56.49 s | 30.22 | Near the model's hard limit (262,144 tokens); historical, not the daily config. |
+| 250,000 | 64 | – | – | Near the current 262K operational limit; use for extreme long-context sessions. |
 
 ### Memory behavior
 
 - **At rest after loading**: ~119 GB used / ~121 GB total, ~2 GB available.
-- **During ~220K prefill**: ~120 GB used, ~1 GB available, minimal swap with the current 240K/1 seq config.
+- **During ~237K prefill**: ~120 GB used, ~1 GB available, minimal swap with the current 262K/1 seq config.
 - **Stable**: no OOM, no hang, no reboot required during these tests.
 
 ### Practical guidance for agents
 
 - **Average agent turn**: OpenClaw / Hermes-style agents typically use **8K–32K tokens** of active context per session.
 - **Conservative production setting**: **1 session × 64K–128K context** runs with sub-second TTFT and leaves comfortable headroom for LiteLLM/ASR.
-- **Maximum practical context per session**: **~220K tokens** with 1 concurrent session at the 240K config.
-- **Do not use 2+ sessions at 240K** unless the machine is dedicated to a single model and you can tolerate hangs from memory spikes.
+- **Maximum practical context per session**: **~237K tokens of input** with 1 concurrent session at the 262K config (leaving 25K for output).
+- **Do not use 2+ sessions at 262K** unless the machine is dedicated to a single model and you can tolerate hangs from memory spikes.
 
 ---
 
@@ -213,8 +212,8 @@ Ready-to-run recipes are in [`scripts/`](scripts/):
 | Script | Model / framework |
 |--------|-------------------|
 | `scripts/run-gemma4-26b-a4b.sh` | Gemma 4 26B-A4B IT NVFP4 community patch on vLLM |
-| `scripts/run-qwen36-35b-a3b.sh` | **Qwen 3.6 35B-A3B nvidia NVFP4 on vLLM nightly (recommended, 240K context, 1 seq)** |
-| `scripts/run-qwen36-35b-a3b-extreme-context-2seq.sh` | Alias to `run-qwen36-35b-a3b.sh` (240K × 1 session) |
+| `scripts/run-qwen36-35b-a3b.sh` | **Qwen 3.6 35B-A3B nvidia NVFP4 on vLLM nightly (recommended, 262K context, 1 seq)** |
+| `scripts/run-qwen36-35b-a3b-extreme-context-2seq.sh` | Alias to `run-qwen36-35b-a3b.sh` (262K × 1 session) |
 | `scripts/run-qwen36-35b-a3b-trtllm.sh` | Qwen 3.6 35B-A3B custom MLP-only NVFP4 on TRT-LLM |
 | `scripts/run-gemma4-31b.sh` | Gemma 4 31B IT NVFP4 on vLLM |
 | `scripts/run-nemotron3-nano-30b-a3b-trtllm.sh` | Nemotron-3 Nano BF16 on TRT-LLM |
@@ -236,7 +235,7 @@ python3 benchmarks/bench_model.py gemma-4-26b-a4b 512
 2. **Marlin is required for MoE NVFP4 on GB10**: use `--moe-backend marlin`. Native FP4 backends (CUTLASS/FlashInfer) may fail or produce NaN on sm_121.
 3. **FP8 KV cache** saves memory but relies on checkpoint scaling factors; vLLM warns about accuracy if they are missing.
 4. **Prefix caching** speeds up requests with shared context or repeated long prompts.
-5. **Tool calling**: Qwen 3.6 requires `--enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3` (the `qwen3_coder` parser is more robust for multi-turn than the older `qwen3_xml`); without a parser, vLLM returns XML in `content` and leaves the native `tool_calls` array empty.
+5. **Tool calling**: Qwen 3.6 requires `--enable-auto-tool-choice --tool-call-parser qwen3_coder` (the `qwen3_coder` parser is more robust for multi-turn than the older `qwen3_xml`); without a parser, vLLM returns XML in `content` and leaves the native `tool_calls` array empty. We omit `--reasoning-parser` for the `nvidia/Qwen3.6-35B-A3B-NVFP4` checkpoint because it does not emit `<think></think>` tags; with the parser active, reasoning leaks into the `reasoning` field and `content` appears empty in agents.
 6. **max-num-batched-tokens**: for multimodal input (Gemma 4), must be >= `max_tokens_per_mm_item` (e.g. 2496 for Gemma 4, 4096 by default).
 7. **TensorRT Model Optimizer on GB10**: quantizing Qwen 3.6 from BF16 requires converting the VLM checkpoint to text-only and using total GPU memory (not free memory) because `accelerate` does not understand the 128 GB unified pool.
 8. **TRT-LLM PyTorch backend** reads `hf_quant_config.json`; use `--backend pytorch` and `--kv_cache_dtype fp8` for HF NVFP4 checkpoints.
@@ -248,7 +247,7 @@ python3 benchmarks/bench_model.py gemma-4-26b-a4b 512
 
 For agentic workflows on DGX Spark and similar 96–128 GB edge AI workstations:
 
-- **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** → **~76 tok/s** with `--attention-backend flashinfer`, `--kv-cache-dtype fp8`, `--moe-backend marlin`, `VLLM_TEST_FORCE_FP8_MARLIN=1` and `VLLM_MARLIN_USE_ATOMIC_ADD=1`. Tool calling with `qwen3_coder`, image/video support, and **240K context** with 1 sequence — enough headroom for ~220K-token agent sessions on the Spark. **This is the current default recommendation.**
+- **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** → **~76 tok/s** with `--attention-backend flashinfer`, `--kv-cache-dtype fp8`, `--moe-backend marlin`, `VLLM_TEST_FORCE_FP8_MARLIN=1` and `VLLM_MARLIN_USE_ATOMIC_ADD=1`. Tool calling with `qwen3_coder`, image/video support, and **262K context** with 1 sequence — ~237K input + 25K output budget for agent sessions on the Spark. **This is the current default recommendation.**
 - **Gemma 4 26B-A4B community + patch** → ~49.5 tok/s, tool calling, low VRAM.
 - **Qwen 3.6 35B-A3B RedHatAI** → ~42.2 tok/s, stable fallback if the nvidia checkpoint or nightly image are unavailable.
 - **Qwen 3.6 35B-A3B MLP-only NVFP4** (custom TRT-LLM) → ~34.4 tok/s if you prefer the official NVIDIA stack.
@@ -257,4 +256,4 @@ For agentic workflows on DGX Spark and similar 96–128 GB edge AI workstations:
 
 Gemma 4 31B dense should be reserved only for tasks where the dense model quality justifies ~7 tok/s.
 
-**If your agent framework (OpenClaw, Hermes, etc.) needs the largest practical context window on a single local GPU**, Qwen 3.6 35B-A3B on vLLM is the clear choice: it delivers up to **240K tokens** with 1 concurrent session by default, leaving headroom for auxiliary services. The model's hard limit remains 262K, but we run 240K for stability on the Spark.
+**If your agent framework (OpenClaw, Hermes, etc.) needs the largest practical context window on a single local GPU**, Qwen 3.6 35B-A3B on vLLM is the clear choice: it delivers the model's full **262,144 tokens** with 1 concurrent session by default. We configure LiteLLM/Hermes for **237K input + 25K output** to stay within the hard limit while maximizing usable context.

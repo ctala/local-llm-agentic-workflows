@@ -225,33 +225,32 @@ Use the recipe in `scripts/run-qwen36-35b-a3b.sh` (or its alias `scripts/run-qwe
 --kv-cache-dtype fp8 \
 --gpu-memory-utilization 0.92 \
 --max-model-len 262144 \
---max-num-seqs 2 \
+--max-num-seqs 1 \
 --max-num-batched-tokens 32768 \
 --enable-chunked-prefill \
 --async-scheduling \
 --enable-prefix-caching \
 --load-format fastsafetensors \
 --enable-auto-tool-choice \
---tool-call-parser qwen3_coder \
---reasoning-parser qwen3
+--tool-call-parser qwen3_coder
 ```
 
-This is the recommended default for agentic workloads. It gives **two 262K-token sessions in parallel** while leaving headroom for LiteLLM, ASR or other auxiliary services.
+This is the recommended default for agentic workloads. It gives **one 262K-token session** while leaving headroom for LiteLLM, ASR or other auxiliary services. We omit `--reasoning-parser` because the `nvidia/Qwen3.6-35B-A3B-NVFP4` checkpoint does not emit `<think></think>` tags; with the parser, agents see empty `content`.
 
-### Verified concurrency (2-session config)
+### Verified single-session context scaling
 
-| Context per session | Sessions | Notes |
-|---------------------|----------|-------|
-| 50K tokens | 2 | Sub-second TTFT, very responsive. |
-| 100K tokens | 2 | Sub-second TTFT for both sessions. |
-| 200K tokens | 2 | Chunked prefill keeps total time low. |
-| **262K tokens** | **2** | **Works**; total prefill is 524K tokens instead of 786K, so TTFT is lower than the 3-session variant. |
+| Input tokens | Output tokens | Notes |
+|--------------|---------------|-------|
+| 50K | 25K | Sub-second TTFT, very responsive. |
+| 100K | 25K | Sub-second TTFT. |
+| 180K | 25K | Stable within the 262K limit. |
+| 237K | 25K | Near the current operational limit; use for extreme long-context sessions. |
 
 ### Practical guidance
 
-- **Typical agent turn**: OpenClaw / Hermes-style agents use **8K–32K tokens** of active context per session.
-- **Comfortable production default**: **2 sessions × 64K context** runs with sub-second TTFT and leaves memory headroom for LiteLLM/ASR.
-- **Maximum per session**: **~262K tokens** is achievable with 2 concurrent sessions; reserve it for occasional long-context tasks, not as the steady-state default.
+- **Typical agent turn**: Hermes-style agents use **8K–32K tokens** of active context per session.
+- **Comfortable production default**: **1 session × 64K–128K context** runs with sub-second TTFT and leaves memory headroom for LiteLLM/ASR.
+- **Maximum input per session**: **~237K tokens** with 1 concurrent session at the 262K config (reserving 25K for output).
 - **Memory at rest after loading**: ~117–119 GB used / ~121 GB total. Keep other GPU/VRAM consumers stopped.
 
 See [Results](/local-llm-agentic-workflows/results/) for the older 3-session measurements and full context-scaling tables.
@@ -284,7 +283,8 @@ providers:
     name: Spark Qwen 35B-A3B (vLLM fast)
     api_key: local-no-key-needed
     model: qwen3.6-35b-a3b-vllm-fast
-    context_length: 262144
+    context_length: 237000
+    max_tokens: 25000
 ```
 
 ```bash
@@ -300,7 +300,7 @@ hermes chat --provider local-qwen-35b-vllm-fast -m qwen3.6-35b-a3b-vllm-fast
 - Resolve audio decoding for Nemotron-3 Nano Omni.
 - Keep LiteLLM proxy recipes current as the single endpoint for Hermes, OpenClaw and Open WebUI.
 - Expand coverage to other high-memory edge devices beyond DGX Spark.
-- Validate 2×262K context under real OpenClaw / Hermes multi-turn traces.
+- Validate 1×262K context under real Hermes multi-turn traces.
 
 ---
 

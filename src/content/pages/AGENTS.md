@@ -36,7 +36,7 @@ The LiteLLM proxy binds to `0.0.0.0:4000` and exposes all configured backends un
 
 Hermes supports custom OpenAI-compatible endpoints. The cleanest setup for the Spark is to use **one provider that points to the LiteLLM proxy**; LiteLLM then exposes whichever model is currently loaded (Qwen, Gemma, Nemotron, etc.) under a single URL.
 
-> **Important:** LiteLLM's `/v1/models` endpoint does not report `max_tokens`/`context_length` for custom OpenAI-compatible backends. If you do not set `model.context_length` (and the per-model `context_length` below), Hermes falls back to its built-in family defaults and shows **131,072 tokens** instead of the real **240,000**.
+> **Important:** LiteLLM's `/v1/models` endpoint does not report `max_tokens`/`context_length` for custom OpenAI-compatible backends. If you do not set `model.context_length` (and the per-model `context_length` below), Hermes falls back to its built-in family defaults and shows **131,072 tokens** instead of the real **262,144**.
 
 Add this to `~/.hermes/config.yaml`:
 
@@ -44,7 +44,8 @@ Add this to `~/.hermes/config.yaml`:
 model:
   default: qwen3.6-35b-a3b-vllm
   provider: litellm-local
-  context_length: 240000
+  context_length: 237000
+  max_tokens: 25000
 
 providers:
   litellm-local:
@@ -54,9 +55,26 @@ providers:
     discover_models: false
     models:
       qwen3.6-35b-a3b-vllm:
-        context_length: 240000
+        context_length: 237000
+        max_tokens: 25000
       qwen3.6-35b-a3b-vllm-fast:
-        context_length: 240000
+        context_length: 237000
+        max_tokens: 25000
+
+code_execution:
+  mode: project
+  timeout: 300
+  max_tool_calls: 50
+
+compression:
+  enabled: true
+  threshold: 0.85
+  target_ratio: 0.2
+  protect_last_n: 20
+  hygiene_hard_message_limit: 400
+  protect_first_n: 3
+  abort_on_summary_failure: false
+  codex_gpt55_autoraise: true
 ```
 
 Because LiteLLM auth is disabled, any non-empty `api_key` works (`sk-spark-local` is just a placeholder).
@@ -118,8 +136,8 @@ Add a single LiteLLM provider and select the active model:
         }
       },
       "models": {
-        "qwen3.6-35b-a3b-vllm": { "name": "Qwen3.6 35B-A3B vLLM (think, 240K)" },
-        "qwen3.6-35b-a3b-vllm-fast": { "name": "Qwen3.6 35B-A3B vLLM (no think, 240K)" }
+        "qwen3.6-35b-a3b-vllm": { "name": "Qwen3.6 35B-A3B vLLM (think, 262K)" },
+        "qwen3.6-35b-a3b-vllm-fast": { "name": "Qwen3.6 35B-A3B vLLM (no think, 262K)" }
       }
     }
   },
@@ -155,7 +173,8 @@ Example `~/litellm/config.yaml`:
 
 ```yaml
 model_list:
-  # vLLM Qwen 3.6 35B-A3B (240K context)
+  # vLLM Qwen 3.6 35B-A3B (262144 tokens; 1 sequence)
+  # max_input_tokens=237000 + max_tokens=25000 usan casi toda la ventana.
   - model_name: qwen3.6-35b-a3b-vllm
     litellm_params:
       model: openai/qwen3.6-35b-a3b
@@ -164,8 +183,8 @@ model_list:
     model_info:
       mode: chat
       supports_vision: true
-      max_input_tokens: 240000
-      max_tokens: 240000
+      max_input_tokens: 237000
+      max_tokens: 25000
 
   - model_name: qwen3.6-35b-a3b-vllm-fast
     litellm_params:
@@ -178,8 +197,8 @@ model_list:
     model_info:
       mode: chat
       supports_vision: true
-      max_input_tokens: 240000
-      max_tokens: 240000
+      max_input_tokens: 237000
+      max_tokens: 25000
 
 litellm_settings:
   drop_params: true
@@ -351,7 +370,8 @@ On the remote PC, use a single LiteLLM provider and switch models with `-m`:
 model:
   default: qwen3.6-35b-a3b-vllm
   provider: litellm-remote
-  context_length: 240000
+  context_length: 237000
+  max_tokens: 25000
 
 providers:
   litellm-remote:
@@ -361,9 +381,11 @@ providers:
     discover_models: false
     models:
       qwen3.6-35b-a3b-vllm:
-        context_length: 240000
+        context_length: 237000
+        max_tokens: 25000
       qwen3.6-35b-a3b-vllm-fast:
-        context_length: 240000
+        context_length: 237000
+        max_tokens: 25000
 ```
 
 Run with the default (thinking) model:
@@ -476,11 +498,12 @@ When serving Qwen 3.6 with vLLM, add these flags:
 
 ```bash
 --enable-auto-tool-choice \
---tool-call-parser qwen3_coder \
---reasoning-parser qwen3
+--tool-call-parser qwen3_coder
 ```
 
-All Qwen 3.6 launch scripts in this repo already include them. The `qwen3_coder` parser is more robust for multi-turn tool calling than the older `qwen3_xml` parser. Without a parser, vLLM returns XML such as:
+We intentionally omit `--reasoning-parser` for the `nvidia/Qwen3.6-35B-A3B-NVFP4` checkpoint because it does not emit `<think></think>` tags; with the parser enabled, reasoning leaks into the `reasoning` field and `content` appears empty in agents. With thinking enabled but no parser, reasoning and answer both land in `content`, which agents display correctly. The `auto_disable_thinking_with_tools` chat-template flag disables thinking automatically when tools are present.
+
+The `qwen3_coder` parser is more robust for multi-turn tool calling than the older `qwen3_xml` parser. Without a parser, vLLM returns XML such as:
 
 ```xml
 <tool_call>\n<name>get_weather</name>\n<arguments>{"location":"Paris"}</arguments>\n</tool_call>
@@ -520,14 +543,14 @@ If the result is `null`, check that the parser flags are present in the launch s
 
 ## Long-context launch scripts
 
-For agentic workloads on the Spark, Qwen 3.6 35B-A3B is served with the nvidia checkpoint and vLLM nightly. The recommended default uses `--attention-backend flashinfer`, `--kv-cache-dtype fp8` and the **Marlin backend for NVFP4 on SM121** (set via `VLLM_TEST_FORCE_FP8_MARLIN=1` and `VLLM_MARLIN_USE_ATOMIC_ADD=1`). Marlin avoids the broken CUTLASS FP4 path on GB10 and lets vLLM use `torch.compile`/`CUDAGraph` without the `bmm_fp8` crash. To leave headroom for long agent sessions we run **240K context with 1 concurrent sequence** (down from the model's hard 262K limit).
+For agentic workloads on the Spark, Qwen 3.6 35B-A3B is served with the nvidia checkpoint and vLLM nightly. The recommended default uses `--attention-backend flashinfer`, `--kv-cache-dtype fp8` and the **Marlin backend for NVFP4 on SM121** (set via `VLLM_TEST_FORCE_FP8_MARLIN=1` and `VLLM_MARLIN_USE_ATOMIC_ADD=1`). Marlin avoids the broken CUTLASS FP4 path on GB10 and lets vLLM use `torch.compile`/`CUDAGraph` without the `bmm_fp8` crash. With `--max-num-seqs 1` we use the model's full **262,144-token context window**.
 
 | Script | `max_num_seqs` | `gpu-memory-utilization` | Context | Attention | Decode tok/s | Use case |
 |--------|---------------|--------------------------|---------|-----------|--------------|----------|
-| `run-qwen36-35b-a3b.sh` | 1 | 0.92 | 240K | `flashinfer` + FP8 + Marlin | **~76** | **Recommended.** Single long-context session (~220K tokens) with headroom for LiteLLM/ASR. |
-| `run-qwen36-35b-a3b-extreme-context-2seq.sh` | 1 | 0.92 | 240K | `flashinfer` + FP8 + Marlin | **~76** | Alias to the script above for discoverability. |
+| `run-qwen36-35b-a3b.sh` | 1 | 0.92 | **262K** | `flashinfer` + FP8 + Marlin | **~76** | **Recommended.** Single long-context session (~237K input + 25K output). |
+| `run-qwen36-35b-a3b-extreme-context-2seq.sh` | 1 | 0.92 | **262K** | `flashinfer` + FP8 + Marlin | **~76** | Alias to the script above for discoverability. |
 
-The 1-sequence/240K config is the best default for Hermes/OpenClaw because it covers real agent sessions up to ~220K tokens while leaving breathing room for auxiliary services.
+The 1-sequence/262K config is the best default for Hermes/OpenClaw because it uses the full model context while leaving a small safety margin for token-counting differences.
 
 Start the recommended config:
 
@@ -541,8 +564,8 @@ With the current vLLM-only setup on the Spark, the usable Qwen 3.6 35B-A3B alias
 
 | Alias | Backend | Context | Thinking | Use case |
 |-------|---------|---------|----------|----------|
-| `qwen3.6-35b-a3b-vllm` | LiteLLM → vLLM | 240K | enabled | Reasoning mode (hard tasks, planning) |
-| `qwen3.6-35b-a3b-vllm-fast` | LiteLLM → vLLM | 240K | disabled | Non-reasoning mode (fast routine turns) |
+| `qwen3.6-35b-a3b-vllm` | LiteLLM → vLLM | 262K | enabled | Reasoning mode (hard tasks, planning) |
+| `qwen3.6-35b-a3b-vllm-fast` | LiteLLM → vLLM | 262K | disabled | Non-reasoning mode (fast routine turns) |
 
 For agentic work that benefits from reasoning, use the `*-vllm` variant. For faster, non-reasoning turns, use `*-vllm-fast`.
 
@@ -786,19 +809,19 @@ Everything stays on the Spark.
 - Verify fastCRW is running: `curl http://localhost:3000/health`
 - Check that nothing else is bound to port 8000, 4000, 8080 or 3000.
 
-### Context length shows 131,072 instead of 240,000 in Hermes
+### Context length shows 131,072 instead of 262,144 in Hermes
 
 This happens because LiteLLM's `/v1/models` response does not include `max_tokens` for OpenAI-compatible backends, so Hermes falls back to its generic `qwen` family default (131K).
 
 Fix:
 
-1. Set `model.context_length: 240000` in `~/.hermes/config.yaml`.
-2. Also set `context_length: 240000` under each model in `providers.litellm-local.models`.
+1. Set `model.context_length: 237000` in `~/.hermes/config.yaml`.
+2. Also set `context_length: 237000` under each model in `providers.litellm-local.models`.
 3. Restart the gateway: `systemctl --user restart hermes-gateway.service`.
 
 ### Context length errors
 
-- Make sure `context_length` in Hermes matches the model's real limit (240000 for Qwen 3.6 35B-A3B).
+- Make sure `context_length` in Hermes matches the input budget configured in LiteLLM (`237000` for Qwen 3.6 35B-A3B with 25K output).
 - In Opencode, set `max_input_tokens` in the LiteLLM `model_info` if needed.
 
 ### Out of memory when using multiple frameworks
@@ -833,9 +856,9 @@ Fix:
 2. Confirm the launch script includes:
    ```bash
    --enable-auto-tool-choice \
-   --tool-call-parser qwen3_coder \
-   --reasoning-parser qwen3
+   --tool-call-parser qwen3_coder
    ```
+   Note: we omit `--reasoning-parser` for the nvidia checkpoint because it does not produce `<think></think>` tags; with the parser, `content` becomes empty in agents.
 3. Restart the container and verify with the curl test in the "Tool calling with Qwen 3.6" section above.
 
 ### Network access not working

@@ -195,7 +195,7 @@ Benchmark: ~34.4 decode tok/s, hot TTFT ~0.09 s, ~41 GB unified memory.
 - **HF_TOKEN required** to download Gemma/Qwen checkpoints from HuggingFace.
 - **Memory**: Gemma 4 26B-A4B NVFP4 uses ~18 GB at load; FP8 KV cache leaves ~82 GB available.
 - **Marlin backend** is mandatory on GB10 for MoE NVFP4. Native FP4 backends may fail or produce NaN on sm_121.
-- **Tool calling**: Qwen 3.6 requires `--enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3`; the `qwen3_coder` parser is more robust for multi-turn than the older `qwen3_xml`. Without a parser, vLLM returns XML in `content` and agent frameworks receive an empty `tool_calls` array.
+- **Tool calling**: Qwen 3.6 requires `--enable-auto-tool-choice --tool-call-parser qwen3_coder`; the `qwen3_coder` parser is more robust for multi-turn than the older `qwen3_xml`. We intentionally omit `--reasoning-parser` because the `nvidia/Qwen3.6-35B-A3B-NVFP4` checkpoint does not emit `<think></think>` tags; with the parser enabled, reasoning leaks into the `reasoning` field and `content` appears empty in agents. With thinking enabled but no parser, reasoning and answer both land in `content`, which agents display correctly. `auto_disable_thinking_with_tools` disables thinking automatically when tools are present.
 - **TRT-LLM with Nemotron 3**: official checkpoints load directly with `trtllm-serve --backend pytorch --kv_cache_dtype fp8`.
 - **vLLM with Nemotron 3**: Nano BF16 and Omni NVFP4 work. Super 120B-A12B does not due to aggressive memory reservation in the V1 engine.
 - **Background services**: stop `llama-server` and other GPU consumers before launching large models.
