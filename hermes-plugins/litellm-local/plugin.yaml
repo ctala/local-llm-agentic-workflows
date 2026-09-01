@@ -1,0 +1,5 @@
+name: litellm-local-provider
+kind: model-provider
+version: 1.0.0
+description: LiteLLM proxy → vLLM/llama.cpp endpoint with thinking/effort translation
+author: Cristian Tala
