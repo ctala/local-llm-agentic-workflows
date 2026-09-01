@@ -967,3 +967,45 @@ Fix:
 - Confirm LiteLLM started with `--host 0.0.0.0`.
 - Check `ufw`/firewall rules on the Spark.
 - Verify the client machine can reach the Spark IP on port 4000: `curl http://<spark-ip>:4000/v1/models`.
+
+## Common Hermes configuration pitfall: "Context: 1,000,000 tokens"
+
+When running a custom OpenAI-compatible endpoint (LiteLLM → vLLM), Hermes' `/model` switch and startup banner may report a wildly wrong context length (e.g. **1,000,000 tokens** for a model that actually supports 262K). The cause and fix:
+
+1. **Cause**: Hermes resolves the context window through `agent/model_metadata.py:get_model_context_length`, which checks the `models.dev` registry first. Custom aliases like `qwen3.8-flash-next-vllm` are not in models.dev, so the resolver falls through to hardcoded-c family defaults — for Qwen 3.x that returns **1,000,000**.
+
+2. **Why `model.context_length` doesn't fix it**: Hermes' runtime helper `agent/agent_runtime_helpers.py` intentionally clears `agent._config_context_length` on every `/model` switch so the new model can resolve its own window. Top-level `model.context_length: 237000` therefore only applies on **startup**, not after `/model`.
+
+3. **The fix — `model_overrides`** (persistent path #0b in `get_model_context_length`):
+
+   ```yaml
+   # ~/.hermes/config.yaml
+   model_overrides:
+     litellm-local:
+       qwen3.8-flash-next-vllm:
+         context_window: 237000
+         max_output_tokens: 16000
+         supports_vision: true
+         supports_tools: true
+       qwen3.8-27b-nvfp4-vllm:
+         context_window: 262144
+         max_output_tokens: 16000
+         supports_vision: true
+         supports_tools: true
+       qwen3.6-35b-a3b-vllm:
+         context_window: 237000
+         max_output_tokens: 25000
+         supports_tools: true
+   ```
+
+4. **Verify** (via tmux, the `/model` command only works in interactive sessions):
+
+   ```text
+   ✓ Model switched: qwen3.8-flash-next-vllm
+     Provider: litellm-local
+     Context: 237,000 tokens
+     Max output: 16,000 tokens
+     Capabilities: tools, vision
+   ```
+
+This is independent of the `[plugin litellm-local](#hermes)` reasoning-level translation; both pieces are required for the full Hermes + LiteLLM + custom-local-vLLM stack to behave correctly.
