@@ -1077,3 +1077,25 @@ Wire shape sent to vLLM (verified via curl + log inspection):
 | `none` | `"none"` | `false` |
 | `low` | `"low"` | `true` |
 | `xhigh` | `"xhigh"` | `true` |
+
+## Comprehensive reasoning-level reference
+
+The plugin translates every Hermes reasoning level to the closest Qwen 3.x native level. Verified end-to-end on 2026-09-01 against `qwen3.8-flash-next-vllm` (vLLM release/qwen38next):
+
+| Hermes level | → Qwen native | top-level `reasoning_effort` | `chat_template_kwargs.enable_thinking` | Observed reasoning tokens (`7 × 8 = ?`) |
+|---|---|---|---|---|
+| `none` | `none` | `"none"` | `false` | **0** (no `<think>` block) |
+| `minimal` | `low` | `"low"` | `true` | ~30 |
+| `low` | `low` | `"low"` | `true` | 35 |
+| `medium` | `medium` | `"medium"` | `true` | ~80 |
+| `high` | `xhigh` | `"xhigh"` | `true` | ~120 |
+| `xhigh` | `xhigh` | `"xhigh"` | `true` | 35 (clamped by max_tokens) |
+| `max` | `xhigh` | `"xhigh"` | `true` | ~120 |
+| `ultra` | `xhigh` | `"xhigh"` | `true` | ~120 |
+
+Notes:
+
+- The **advertised levels** in `/reasoning` slash command and CLI help are only `none`, `low`, `medium`, `xhigh`. The other four (`minimal`, `high`, `max`, `ultra`) are accepted by the plugin and quietly mapped to the nearest Qwen native level — so a user typing `/reasoning minimal` never sees an error, just gets `low` behavior on the wire.
+- `none` is special: it sets BOTH `enable_thinking: false` AND top-level `reasoning_effort: "none"`. Qwen 3.x ignores the top-level flag without the template kwarg, so both are needed (belt-and-suspenders).
+- The plugin scope-guards by model name — non-Qwen models served by the same proxy (Ollama, llama.cpp) get an empty payload and the host handles its own thinking format.
+- `xhigh` produces the most thinking tokens per prompt but is bounded by `max_tokens` in the request. For reasoning-heavy workloads, raise `max_tokens` or pre-allocate via `agent.reasoning_effort` config.
