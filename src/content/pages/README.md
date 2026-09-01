@@ -55,21 +55,25 @@ If you are looking for broader cloud-vs-local model comparisons, see the related
 
 For local LLM deployment on DGX Spark or equivalent 96–128 GB edge hardware, start here:
 
-| Priority | Model | Framework | Decode tok/s | Memory | Tool calling | Multimodal | Max context tested |
-|----------|-------|-----------|--------------|--------|--------------|------------|--------------------|
-| **Quality/speed balance (default 2026-09-01)** | **Qwen3.8-Flash-Next NVFP4 hybrid** | vLLM `release/qwen38next` + 7 parches GB10 | **~37** warm / 117 @c=8 | ~98 GB | ✅ `qwen3_coder` | ✅ text/image/video | **262K (500K YaRN)** |
-| **Maximum throughput, fallback lite** | **Qwen 3.8 27B NVFP4 + DSpark k=14** | vLLM 0.27.1 | 30 fresh / 70-76 warm / 253 @c=16 | ~105 GB | ✅ `qwen3_xml` | ✅ image/video | 262K (1M YaRN) |
-| **Single-stream speed champion** | Qwen 3.6 35B-A3B (nvidia NVFP4) | vLLM nightly | **~75–77** (1-seq/262K) | ~22 GB | ✅ `qwen3_coder` | ✅ image/video | **262K** |
-| **Speed** | Gemma 4 26B-A4B IT (community patch) | vLLM | **~49.5** | ~22 GB | ✅ | ✅ image/video | 128K |
-| **Official NVIDIA multimodal** | Nemotron-3 Nano Omni 30B-A3B | vLLM | **~40.0** | ~40 GB | ✅ | ✅ image | 128K |
+> ⚠️ **Comparación apples-to-apples.** Single-stream warm = 1 user con cache caliente (~0.24 s TTFT). @c=8 = 8 requests concurrentes. Todos los números son del mismo Spark, mismos prompts.
+>
+> **Total = parámetros totales del modelo · Activos = los que se ejecutan por token** (clave para bandwidth del decode).
+
+| Priority | Model | Params (total/activos) | Framework | Decode tok/s | Memory | Tool | Multimodal | Context |
+|----------|-------|------|-----------|--------------|--------|------|------------|---------|
+| **Quality/speed balance (default 2026-09-01)** | **Qwen3.8-Flash-Next NVFP4 hybrid** | **176B / 6B** | vLLM `release/qwen38next` + 7 parches GB10 | **~37** warm / 117 @c=8 | ~98 GB | ✅ `qwen3_coder` | ✅ text/image/video | **262K (500K YaRN)** |
+| **Maximum throughput, fallback lite** | **Qwen 3.8 27B NVFP4 + DSpark k=14** | 27B / 27B | vLLM 0.27.1 | 13.93 fresh / 182 @c=8 warm / 253 @c=16 | ~105 GB | ✅ `qwen3_xml` | ✅ image/video | 262K (1M YaRN) |
+| **Single-stream speed champion** | Qwen 3.6 35B-A3B (nvidia NVFP4) | 35B / 3B | vLLM nightly | **~76** (1-seq/262K config) | ~22 GB | ✅ `qwen3_coder` | ✅ image/video | **262K** |
+| **Speed** | Gemma 4 26B-A4B IT (community patch) | 26B / 4B | vLLM | **~49.5** | ~22 GB | ✅ | ✅ image/video | 128K |
+| **Official NVIDIA multimodal** | Nemotron-3 Nano Omni 30B-A3B | 30B / 3B | vLLM | **~40.0** | ~40 GB | ✅ | ✅ image | 128K |
 
 For quality-first workloads where speed is less important:
 
-| Model | Framework | Decode tok/s | Memory | Notes |
-|-------|-----------|--------------|--------|-------|
-| **Qwen3.8-Flash-Next NVFP4 hybrid** | vLLM + 7 parches GB10 | ~37 warm / 117 @c=8 | ~98 GB | **MoE 176B (6B activos), GSM8K 97.27%, AIME26 98.75%**. Cold start 14 min. |
-| Qwen 3.6 35B-A3B (custom MLP-only NVFP4) | TensorRT-LLM | ~34.4 | ~41 GB | Official NVIDIA stack; requires manual quantization |
-| Nemotron-3 Super 120B-A12B | TensorRT-LLM | ~14.7 | ~110 GB | Best official quality; use only with TRT-LLM |
+| Model | Params (total/activos) | Framework | Decode tok/s | Memory | Notes |
+|-------|------|-----------|--------------|--------|-------|
+| **Qwen3.8-Flash-Next NVFP4 hybrid** | **176B / 6B** | vLLM + 7 parches GB10 | ~37 warm / 117 @c=8 | ~98 GB | **GSM8K 97.27%, AIME26 98.75%**. Solo 6B activos por token → excelente bandwidth. Cold start 14 min. |
+| Qwen 3.6 35B-A3B (custom MLP-only NVFP4) | 35B / 3B | TensorRT-LLM | ~34.4 | ~41 GB | Official NVIDIA stack; requires manual quantization |
+| Nemotron-3 Super 120B-A12B | 120B / 12B | TensorRT-LLM | ~14.7 | ~110 GB | Best official quality; use only with TRT-LLM |
 
 ---
 
