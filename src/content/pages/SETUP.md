@@ -2,7 +2,12 @@
 
 > For the quick start guide see [Home](/local-llm-agentic-workflows/). For the original Spanish log see [Setup in Spanish](/local-llm-agentic-workflows/setup.es/).
 
-This document is a detailed work log of the attempts, errors and fixes encountered while optimizing **Gemma 4**, **Qwen 3.6** and **NVIDIA Nemotron 3** for local agentic workflows on the NVIDIA DGX Spark and equivalent high-memory edge AI hardware.
+Per-model setup guides (faster than this log for actual installation):
+
+- **[`docs/setup-qwen38-flash-next.md`](https://github.com/ctala/local-llm-agentic-workflows/blob/main/docs/setup-qwen38-flash-next.md)** — **Qwen3.8-Flash-Next NVFP4 hybrid** (default 2026-09-01, recipe [`blazux/qwen3.8-Flash-DGX`](https://github.com/blazux/qwen3.8-Flash-DGX), 14 min cold start, ~139 GB disk)
+- **[`docs/setup-qwen38-27b-nvfp4-dspark.md`](https://github.com/ctala/local-llm-agentic-workflows/blob/main/docs/setup-qwen38-27b-nvfp4-dspark.md)** — **Qwen 3.8 27B NVFP4 + DSpark k=14** (fallback lite, 5-8 min cold start, ~25 GB disk)
+
+This document is a detailed work log of the attempts, errors and fixes encountered while optimizing **Gemma 4**, **Qwen 3.6**, **Qwen 3.8 (27B + Flash-Next)** and **NVIDIA Nemotron 3** for local agentic workflows on the NVIDIA DGX Spark and equivalent high-memory edge AI hardware.
 
 ---
 
