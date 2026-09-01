@@ -1009,3 +1009,71 @@ When running a custom OpenAI-compatible endpoint (LiteLLM → vLLM), Hermes' `/m
    ```
 
 This is independent of the `[plugin litellm-local](#hermes)` reasoning-level translation; both pieces are required for the full Hermes + LiteLLM + custom-local-vLLM stack to behave correctly.
+
+## Why `/reasoning <level>` was being silently dropped (and the fix)
+
+Even with the plugin installed at `~/.hermes/plugins/model-providers/litellm-local/`, the reasoning-level translation did NOT fire for our local Qwen 3.x models — the `/model` output looked like:
+
+```
+┌─ Reasoning ──────────────────────────────────────────────────────────────────┐
+The user just said "decí hola"...
+└──────────────────────────────────────────────────────────────────────────────
+```
+
+…and `--reasoning none` still produced a `<think>` block.
+
+### Root cause
+
+`hermes_cli/runtime_provider.py:_resolve_named_custom_runtime` always canonicalizes every named custom provider to `{"provider": "custom", ...}` before returning to the agent. That overwrites `agent.provider` with `"custom"` (see `hermes_cli/cli_agent_setup_mixin.py:_ensure_runtime_credentials`, ~line 165, where `self.provider = resolved_provider`).
+
+The plugin profile was originally registered as:
+
+```python
+LitellmLocalProfile(name="litellm-local", aliases=("litellm",))
+```
+
+So `get_provider_profile("custom")` returned the stock `CustomProfile` (no `build_api_kwargs_extras`), and our profile was never looked up for our own provider. `agent.reasoning_config` never reached the plugin, and the Qwen template kept emitting thinking tokens.
+
+### Fix
+
+Rename the plugin profile to register under `"custom"` (the canonical name every custom provider is collapsed to) with the original name as an alias:
+
+```python
+litellm_local = LitellmLocalProfile(
+    name="custom",
+    aliases=("custom", "litellm-local", "litellm"),
+    ...
+)
+register_provider(litellm_local)
+```
+
+That makes `get_provider_profile("custom")` return **our** profile (overriding the bundled one), so `build_api_kwargs_extras(reasoning_config=...)` finally fires for our request.
+
+### Scope guard
+
+We don't want our profile rewriting `reasoning_effort`/`enable_thinking` for every model that happens to pass through the proxy. The hook short-circuits unless the model name starts with `qwen` (case-insensitive):
+
+```python
+def build_api_kwargs_extras(self, *, reasoning_config=None, model="", **ctx):
+    if model and not model.lower().startswith("qwen"):
+        return {}, {}
+    ...
+```
+
+Ollama, llama.cpp and other non-Qwen models served by the same proxy get an empty payload and the host does its own thinking handling.
+
+### Verified end-to-end
+
+| `--reasoning` | Reasoning tokens | Sample content |
+|---|---|---|
+| `none` | **0** (no `<think>` block) | `"Hola"` |
+| `low` | ~50 | `"The user is asking a simple arithmetic question. 12 × 15 = 180"` |
+| `xhigh` | ~150 | multi-step reasoning + tool call + `"101, 103, 107 y 109"` |
+
+Wire shape sent to vLLM (verified via curl + log inspection):
+
+| `--reasoning` | top-level `reasoning_effort` | `chat_template_kwargs.enable_thinking` |
+|---|---|---|
+| `none` | `"none"` | `false` |
+| `low` | `"low"` | `true` |
+| `xhigh` | `"xhigh"` | `true` |
