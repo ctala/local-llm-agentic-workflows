@@ -1,6 +1,6 @@
 ---
 title: "Best Local LLM Deployment Guide for DGX Spark, GB10 & 96–128 GB Edge AI Workstations"
-description: "Practical guide, benchmarks and copy-paste Docker recipes for running Gemma 4, Qwen 3.6 and NVIDIA Nemotron 3 locally on DGX Spark, GB10 and other high-memory edge AI workstations using vLLM and TensorRT-LLM."
+description: "Practical guide, benchmarks and copy-paste Docker recipes for running Gemma 4, Qwen 3.8, Qwen 3.6 and NVIDIA Nemotron 3 locally on DGX Spark, GB10 and other high-memory edge AI workstations using vLLM and TensorRT-LLM."
 keywords:
   - local LLM
   - DGX Spark
@@ -9,19 +9,22 @@ keywords:
   - vLLM
   - TensorRT-LLM
   - Gemma 4
+  - Qwen 3.8
+  - Qwen 3.8-Flash-Next
   - Qwen 3.6
   - Nemotron 3
   - Hermes agent
   - OpenClaw
   - Open WebUI
   - 128 GB unified memory
+  - MoE
 ---
 
 # Best Local LLM Deployment Guide for DGX Spark, GB10 & 96–128 GB Edge AI Workstations
 
 A practical guide, reproducible benchmark results and ready-to-run Docker recipes for running the best local LLMs on high-memory edge AI hardware such as the **NVIDIA DGX Spark** (GB10 Grace Blackwell, ARM64/aarch64, 128 GB unified memory, sm_121) and other single-GPU workstations with **96–128 GB of unified or pooled memory**.
 
-This repository answers one question: **what is the best way to run local large language models on memory-rich edge devices?** It compares production inference engines (**vLLM** and **TensorRT-LLM**), quantization formats (**NVFP4/Marlin**, **FP8 KV cache**, **BF16**) and model families (**Gemma 4**, **Qwen 3.6**, **NVIDIA Nemotron 3**), measuring real decode throughput, memory footprint and stability for local AI deployment.
+This repository answers one question: **what is the best way to run local large language models on memory-rich edge devices?** It compares production inference engines (**vLLM** and **TensorRT-LLM**), quantization formats (**NVFP4/Marlin**, **FP8 KV cache**, **fp8-e4m3 hybrid for MoE side layers**, **BF16**) and model families (**Gemma 4**, **Qwen 3.8** (27B + Flash-Next MoE 176B), **Qwen 3.6**, **NVIDIA Nemotron 3**), measuring real decode throughput, memory footprint and stability for local AI deployment.
 
 Use cases covered include local chatbots, coding assistants, agentic workflows with **Hermes** and **OpenClaw**, Open WebUI, n8n, multi-turn tool calling, multimodal agents and local speech-to-text (ASR) on the DGX Spark and similar edge AI workstations.
 
@@ -54,7 +57,9 @@ For local LLM deployment on DGX Spark or equivalent 96–128 GB edge hardware, s
 
 | Priority | Model | Framework | Decode tok/s | Memory | Tool calling | Multimodal | Max context tested |
 |----------|-------|-----------|--------------|--------|--------------|------------|--------------------|
-| **Quality/speed balance** | Qwen 3.6 35B-A3B (nvidia NVFP4) | vLLM nightly | **~75–77** | ~22 GB | ✅ | ✅ image/video | **262K** |
+| **Quality/speed balance (default 2026-09-01)** | **Qwen3.8-Flash-Next NVFP4 hybrid** | vLLM `release/qwen38next` + 7 parches GB10 | **~37** warm / 117 @c=8 | ~98 GB | ✅ `qwen3_coder` | ✅ text/image/video | **262K (500K YaRN)** |
+| **Maximum throughput, fallback lite** | **Qwen 3.8 27B NVFP4 + DSpark k=14** | vLLM 0.27.1 | 30 fresh / 70-76 warm / 253 @c=16 | ~105 GB | ✅ `qwen3_xml` | ✅ image/video | 262K (1M YaRN) |
+| **Single-stream speed champion** | Qwen 3.6 35B-A3B (nvidia NVFP4) | vLLM nightly | **~75–77** (1-seq/262K) | ~22 GB | ✅ `qwen3_coder` | ✅ image/video | **262K** |
 | **Speed** | Gemma 4 26B-A4B IT (community patch) | vLLM | **~49.5** | ~22 GB | ✅ | ✅ image/video | 128K |
 | **Official NVIDIA multimodal** | Nemotron-3 Nano Omni 30B-A3B | vLLM | **~40.0** | ~40 GB | ✅ | ✅ image | 128K |
 
@@ -62,6 +67,7 @@ For quality-first workloads where speed is less important:
 
 | Model | Framework | Decode tok/s | Memory | Notes |
 |-------|-----------|--------------|--------|-------|
+| **Qwen3.8-Flash-Next NVFP4 hybrid** | vLLM + 7 parches GB10 | ~37 warm / 117 @c=8 | ~98 GB | **MoE 176B (6B activos), GSM8K 97.27%, AIME26 98.75%**. Cold start 14 min. |
 | Qwen 3.6 35B-A3B (custom MLP-only NVFP4) | TensorRT-LLM | ~34.4 | ~41 GB | Official NVIDIA stack; requires manual quantization |
 | Nemotron-3 Super 120B-A12B | TensorRT-LLM | ~14.7 | ~110 GB | Best official quality; use only with TRT-LLM |
 
@@ -96,6 +102,8 @@ The recipes were tested on the **NVIDIA DGX Spark** and should work on any ARM64
 ├── LICENSE                       # MIT
 ├── scripts/                      # Docker launch recipes and helpers
 │   ├── run-gemma4-26b-a4b.sh
+│   ├── run-qwen38-27b-nvfp4-dspark.sh     # Qwen 3.8 27B + DSpark k=14 (fallback lite)
+│   ├── run-qwen38-flash-next.sh           # Qwen3.8-Flash-Next NVFP4 hybrid (default 2026-09-01)
 │   ├── run-qwen36-35b-a3b.sh
 │   ├── run-qwen36-35b-a3b-extreme-context-2seq.sh
 │   ├── run-qwen36-35b-a3b-trtllm.sh
@@ -137,7 +145,9 @@ Benchmarks use a ~120-token prompt, `max_tokens=512`, temperature 0.7 and stream
 
 | Model | Checkpoint | Framework | Decode tok/s | Memory | Tool calling | Multimodal | Max context | Recommendation |
 |-------|------------|-----------|--------------|--------|--------------|------------|-------------|----------------|
-| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | vLLM nightly | **~75–77** | ~22 GB | ✅ | ✅ image/video | **262K** | **Current recommendation: best quality/speed balance and longest context** |
+| **Qwen3.8-Flash-Next NVFP4 hybrid** | `RadixArk/Qwen3.8-Flash-Next-NVFP4` | vLLM `release/qwen38next` + 7 parches GB10 | **~37** warm / 117 @c=8 | ~98 GB | ✅ `qwen3_coder` | ✅ text/image/video | **262K / 500K YaRN** | **Current default (2026-09-01).** Best quality (GSM8K 97.27%), MoE 176B (6B activos). |
+| **Qwen 3.8 27B NVFP4 + DSpark k=14** | `unsloth/Qwen3.8-27B-NVFP4` | vLLM 0.27.1 + DSpark | 30 fresh / 70-76 warm / 253 @c=16 | ~105 GB | ✅ `qwen3_xml` | ✅ image/video | 262K (1M YaRN) | **Fallback lite**, mejor concurrencia. |
+| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | vLLM nightly | **~75–77** (1-seq/262K) | ~22 GB | ✅ `qwen3_coder` | ✅ image/video | **262K** | Single-stream speed champion con long-context |
 | **Gemma 4 26B-A4B** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + patch | vLLM | **~49.5** | ~22 GB | ✅ | ✅ image/video | 128K | **Fastest raw speed for text agents** |
 | **Qwen 3.6 35B-A3B** | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | vLLM | **~42.2** | ~22 GB | ✅ | ✅ image/video | **262K** | Stable fallback |
 | **Nemotron-3 Nano Omni 30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` | vLLM | **~40.0** | ~40 GB | ✅ | ✅ image | 128K | **Best official multimodal option** |

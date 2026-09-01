@@ -14,6 +14,8 @@ Target models:
 - Google Gemma 4 31B IT (dense)
 - Google Gemma 4 26B-A4B IT (MoE)
 - Qwen 3.6 35B-A3B (MoE)
+- **Qwen 3.8 27B NVFP4 + DSpark k=14** (dense hybrid, current fallback lite since 2026-09-01)
+- **Qwen3.8-Flash-Next NVFP4 hybrid** (MoE 176B with 6B active, Mamba + QSA + PLE, current default since 2026-09-01)
 - NVIDIA Nemotron-3 Nano 30B-A3B (MoE, BF16)
 - NVIDIA Nemotron-3 Super 120B-A12B (MoE, NVFP4)
 - NVIDIA Nemotron-3 Nano Omni 30B-A3B (multimodal, NVFP4)
@@ -179,7 +181,9 @@ Benchmark: ~34.4 decode tok/s, hot TTFT ~0.09 s, ~41 GB unified memory.
 
 | Model | Checkpoint | Container | Decode tok/s | Recommended use |
 |-------|------------|-----------|--------------|-----------------|
-| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~75–77** | **Best quality/speed balance; full 262K context; tool calling.** |
+| **Qwen3.8-Flash-Next NVFP4 hybrid** | `RadixArk/Qwen3.8-Flash-Next-NVFP4` | `qwen38-flash-dgx` (vLLM `release/qwen38next` + 7 parches GB10) | **~37 warm / 117 @c=8** | **Default (2026-09-01).** Best quality (GSM8K 97.27%), MoE 176B (6B activos), multimodal texto+imagen+video, 262K contexto. |
+| **Qwen 3.8 27B NVFP4 + DSpark k=14** | `unsloth/Qwen3.8-27B-NVFP4` | `vllm/vllm-openai:v0.27.1-aarch64` | 30 fresh / 70-76 warm / 253 @c=16 | **Fallback lite.** Mejor concurrencia, multimodal, 262K contexto. |
+| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~75–77** | Single-stream long-context 262K champion; 1 secuencia por sesión. |
 | **Gemma 4 26B-A4B** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + patch | `vllm/vllm-openai:gemma4-cu130` | **~49.5** | Maximum speed for agents |
 | **Qwen 3.6 35B-A3B** | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~42.2** | Stable fallback |
 | **Gemma 4 31B** | `nvidia/Gemma-4-31B-IT-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~6.7** | Only if dense model is needed |
@@ -225,3 +229,138 @@ Benchmark: ~34.4 decode tok/s, hot TTFT ~0.09 s, ~41 GB unified memory.
 5. Compare Qwen 3.6 nvidia W4A16 quality against RedHatAI `compressed-tensors` and custom MLP-only NVFP4.
 6. Test GPT-OSS with TRT-LLM.
 7. Test GGUF and MTP variants of Qwen 3.6 to compare quality vs speed trade-offs.
+
+---
+
+## Qwen 3.8 family (2026-08-15 → 2026-09-01)
+
+Two new Qwen 3.8 checkpoints were validated on the Spark:
+
+### Qwen 3.8 27B NVFP4 + DSpark k=14 (fallback lite since 2026-09-01)
+
+**Setup** (~5 min from scratch):
+
+```bash
+# 1. Download checkpoint + drafter (~22 GB + 2.7 GB)
+hf download unsloth/Qwen3.8-27B-NVFP4 --local-dir ~/vllm/qwen3.8-27b-nvfp4
+hf download Doopeworld/Qwen3.8-27B-DSpark-vLLM --local-dir ~/vllm/qwen3.8-dspark
+
+# 2. Pull image
+docker pull vllm/vllm-openai:v0.27.1-aarch64
+
+# 3. Launch (foreground, port 8001)
+./scripts/run-qwen38-27b-nvfp4-dspark.sh
+```
+
+Recipe upstream: [`0xBakeer/Qwen3.8-27B-FP8-on-a-single-DGX-Spark`](https://github.com/0xBakeer/Qwen3.8-27B-FP8-on-a-single-DGX-Spark) — adapted from FP8 to NVFP4 + added systemd service for production. Key flags:
+
+- `--speculative-config '{"method":"dspark","model":"/models/qwen3.8-dspark","num_speculative_tokens":14,"draft_sample_method":"probabilistic"}'` — DSpark k=14 drafter gives **3× speedup** on warm prefix cache.
+- `--enable-prefix-caching` — **mandatory**; without it, EDIT-heavy workloads drop from 73-76 tok/s to ~30 tok/s.
+- `--tool-call-parser qwen3_xml --reasoning-parser qwen3` — XML parser (not `qwen3_coder`).
+- `--limit-mm-per-prompt.image 2 --limit-mm-per-prompt.video 0` — multimodal (text + image + video).
+
+**Measured** (Spark, page cache warm):
+
+| Workload | Tokens/s | Notes |
+|----------|---------:|-------|
+| Fresh-code single-stream | **29.67** | No cache hits |
+| EDIT-heavy (warm prefix cache) | **73–76** | Cache hit on system prompt |
+| Aggregate c=1 | 70.66 | Single-session warm |
+| Aggregate c=4 | 150.64 | |
+| Aggregate c=8 | 182.25 | |
+| **Aggregate c=16** | **253.18** | |
+| Determinism (20/20 byte-identical) | ✓ | |
+
+### Qwen3.8-Flash-Next NVFP4 hybrid (default since 2026-09-01)
+
+A hybrid-architecture MoE model (Mamba + QSA sparse attention + PLE n-gram injection, 48 decoder layers × 512 routed experts, top-10 routing, 1 shared expert + 1 MTP layer). Quantized with NVIDIA Model Optimizer (`v0.46.0` snapshot `87c9f8cf`) using **NVFP4 W4A4**, scoped to the routed experts only. The dense side layers (GDN, QSA, shared experts) are kept in bf16 in the published checkpoint; the recipe [`blazux/qwen3.8-Flash-DGX`](https://github.com/blazux/qwen3.8-Flash-DGX) optionally converts them to **blockwise fp8-e4m3** (128×128 blocks, DeepSeek layout) for an additional ~20% decode speedup (`MODE=hybrid`).
+
+**Setup** (~50 min from scratch):
+
+```bash
+# 1. Clone the recipe repo (provides Dockerfile + patches + scripts)
+git clone https://github.com/blazux/qwen3.8-Flash-DGX.git upstream
+
+# 2. Build the patched Docker image (~3 min)
+cd upstream && docker build -t qwen38-flash-dgx .
+# The Dockerfile applies 7 GB10-targeted patches on top of
+# vllm/vllm-openai:qwen38-flash-next (release/qwen38next recipe / PR #53896):
+#   1. PLE n-gram table served from NVMe via mmap (VLLM_PLE_MMAP=1)
+#   2. GB10 FLA shared-memory gate (sm_121 reports 99 KiB, not 100)
+#   3. Mamba state-copy race fix (vllm#50729 + bounds guard)
+#   4. Prefix-caching block_size fix (was silently restoring all-zero Mamba state)
+#   5. Exact deterministic QSA top-k (VLLM_QSA_EXACT_TOPK=1)
+#   6. NVFP4 experts + fp8 side layers hybrid dispatch (VLLM_FP8_HYBRID=1)
+#   7. fp8_e4m3 KV cache on the QSA path
+
+# 3. Download checkpoint (~20 min, 126 GiB → ~/.cache/huggingface/)
+cd .. && bash upstream/scripts/download-weights.sh
+# Requires HF_TOKEN or accepts unauthenticated downloads (model is public).
+
+# 4. (Optional) Prepare the hybrid snapshot, +13 GB, ~10 min
+bash upstream/scripts/prepare-hybrid.sh
+# Touches 4 shards / 300 tensors, max relative error 3.54%.
+
+# 5. Launch (foreground, port 8001)
+./scripts/run-qwen38-flash-next.sh
+# Or set MODE=hybrid after running prepare-hybrid.sh.
+
+# 6. Enable systemd for auto-start on boot
+cp systemd/qwen38-flash-next-vllm.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now qwen38-flash-next-vllm.service
+```
+
+**Measured** (Spark, page cache warm ~25 min, MODE=hybrid):
+
+| Workload | Tokens/s | Notes |
+|----------|---------:|-------|
+| chat_short fresh (warm) | **36.66** | Median of 5 runs, stddev ~0.5 tok/s |
+| chat_short fresh (cold first request) | ~22 | ~2-3 s TTFT warmup |
+| code_quicksort fresh | 28.52 | max_tokens=512 |
+| agent_with_tools (single) | 23.59 | Tool calling with `qwen3_coder` parser |
+| Tool loop multi-step (4 steps, 3 tools) | 28.65 median | 14.5 s wall clock per loop |
+| Aggregate c=1 | 30.29 | |
+| Aggregate c=4 | 45.09 | |
+| **Aggregate c=8** | **116.75** | +30% vs NVFP4 mode |
+| **Aggregate c=16** | **129.65** | +24% vs the 27B default |
+| Aggregate c=32 | 129.69 | Plateau (SEQS=8 cap) |
+| Prefill cold (8K prompt) | 1018 tok/s | |
+| **Prefix-hit TTFT** (same 20K prompt) | **1.46 s** | 7.2× speedup vs 10.47 s cold |
+| Determinism (EXACT_TOPK=1) | ✓ | First-token logprobs byte-identical |
+| Memory | ~98 GiB / 121 GiB | PLE table mmap'd off-pool |
+| GSM8K (RadixArk eval) | **97.27%** | t=0.6, top-p=0.95, max=8192 |
+| AIME26 (RadixArk eval) | **98.75% pass@1** | 30 problems × 8, t=1.0, max=130k |
+| Cold start | | ~14 min first time; ~1-2 min cached |
+| Disk | | ~139 GiB (126 GB NVFP4 + 13 GB hybrid) |
+
+**Tuning notes**: the upstream defaults are optimal. We benchmarked three variants and all were worse:
+
+| Variant | Δ vs upstream defaults |
+|---------|------------------------|
+| `SEQS=32, max-num-batched-tokens=16384` | @c=4-8 +16%, **@c=16 −23%** (scheduler context switching) |
+| `MTP=4` (instead of `MTP=2`) | -7 to -34% across the board (acceptance rate drops) |
+| `SEQS=16` | @c=8 +5%, **@c=16 −23%** (same scheduler issue) |
+
+Counterintuitive finding: keeping `SEQS=8` below the desired concurrency level gives better aggregate throughput because the first N sequences are processed without context switching; the rest wait briefly.
+
+### Why Qwen3.8-Flash-Next replaced Qwen 3.8 27B as default
+
+- **Quality**: GSM8K 97.27% / AIME26 98.75% vs ~95% for the 27B dense hybrid.
+- **Fresh single-stream**: 36.66 tok/s vs 13.93 tok/s for the 27B fresh (+163%).
+- **Concurrency @c=8**: 117 tok/s aggregate vs 40.40 for the 27B fresh (+189%).
+- **Multimodal**: text + image + video out of the box (vs the 27B also has it but with limited recipes).
+- **Context**: 262K native, 500K YaRN (vs 262K / 1M YaRN on the 27B).
+- **Trade-off**: the 27B + DSpark k=14 still wins @c=16 (253 tok/s aggregate) because DSpark k=14 is a more aggressive drafter than MTP=2 in this MoE setup. Keep the 27B as a high-concurrency fallback.
+
+### Critical GB10 caveats solved by the recipe
+
+The vanilla vLLM `release/qwen38next` recipe fails on the Spark GB10 (sm_121). The [`blazux/qwen3.8-Flash-DGX`](https://github.com/blazux/qwen3.8-Flash-DGX) image bundles **7 patches**:
+
+1. **PLE mmap** (most important): the checkpoint is 126 GiB but only ~76 GiB are loaded into GPU memory; the 48 GiB PLE n-gram embedding table is served from NVMe via `mmap` and the lookup goes through a `vllm::ple_mmap_lookup` splitting op outside CUDA graphs. **Without this patch, the model does not fit in 128 GB**.
+2. **GB10 FLA fixes**: sm_121 reports 99 KiB of shared memory per block, but the flash-linear-attention gate asked for 100 KiB, so all 36 GDN layers silently ran on small tiles; a `sed` lowers the gate to 99 KiB.
+3. **Mamba state-copy race fix** (vllm#50729 + bounds guard by `@Saren-Arterius`): turns an out-of-range block id into a skipped copy plus a log counter instead of a dead CUDA context.
+4. **Prefix-caching block_size fix**: vLLM's `cache_config.block_size` was being overwritten with the smallest KV-group block size (8 tokens here, the QSA raw-key ring), but the Mamba block is 1600 tokens; two consumers used the former as the latter, so every prefix hit restored an **all-zero Mamba state** — silently wrong answers. With this fix, cold and cache-hit outputs are bit-identical.
+5. **Exact deterministic QSA top-k** (`VLLM_QSA_EXACT_TOPK=1`): the stock `persistent_topk` kernel is non-deterministic on GB10 and can drop legitimate top-k candidates ([vllm#51782](https://github.com/vllm-project/vllm/issues/51782)). The patched path uses `torch.topk` over the visible columns — identical greedy outputs, costs ~10% on long prefills.
+6. **NVFP4 + blockwise fp8 hybrid dispatch** (`VLLM_FP8_HYBRID=1`): routed experts stay NVFP4 (where quality lives); GDN/QSA/shared-expert side layers go through blockwise fp8 GEMM (where bandwidth dominates). Same quality tournament score, +20% decode.
+7. **fp8_e4m3 KV cache** (optional, `--kv-cache-dtype fp8_e4m3`): 1.9× KV pool, 1M context on one box — at the cost of -10% decode, -30% prefill, and a measurable quality dip in long-context. Not enabled by default.

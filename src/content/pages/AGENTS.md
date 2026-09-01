@@ -36,16 +36,16 @@ The LiteLLM proxy binds to `0.0.0.0:4000` and exposes all configured backends un
 
 Hermes supports custom OpenAI-compatible endpoints. The cleanest setup for the Spark is to use **one provider that points to the LiteLLM proxy**; LiteLLM then exposes whichever model is currently loaded (Qwen, Gemma, Nemotron, etc.) under a single URL.
 
-> **Important:** LiteLLM's `/v1/models` endpoint does not report `max_tokens`/`context_length` for custom OpenAI-compatible backends. If you do not set `model.context_length` (and the per-model `context_length` below), Hermes falls back to its built-in family defaults and shows **131,072 tokens** instead of the real **262,144**.
+> **Important:** LiteLLM's `/v1/models` endpoint does not report `max_tokens`/`context_length` for custom OpenAI-compatible backends. If you do not set `model.context_length` (and the per-model `context_length` below), Hermes falls back to its built-in family defaults and shows **131,072 tokens** instead of the real **262,144** (or **237,000** if you reserve 25K for output).
 
 Add this to `~/.hermes/config.yaml`:
 
 ```yaml
 model:
-  default: qwen3.6-35b-a3b-vllm
+  default: qwen3.8-flash-next-vllm   # current default (2026-09-01)
   provider: litellm-local
   context_length: 237000
-  max_tokens: 25000
+  max_tokens: 16000
 
 providers:
   litellm-local:
@@ -54,12 +54,21 @@ providers:
     api_key: sk-spark-local
     discover_models: false
     models:
-      qwen3.6-35b-a3b-vllm:
+      qwen3.8-flash-next-vllm:
         context_length: 237000
-        max_tokens: 25000
-      qwen3.6-35b-a3b-vllm-fast:
+        max_tokens: 16000
+      qwen3.8-27b-nvfp4-vllm:        # fallback lite, same container after stopping default
         context_length: 237000
-        max_tokens: 25000
+        max_tokens: 16000
+      qwen3.6-35b-a3b-vllm:          # legacy single-stream champion, requires swap
+        context_length: 237000
+        max_tokens: 16000
+    default_model: qwen3.8-flash-next-vllm
+
+agent:
+  reasoning_overrides:
+    qwen3.8-flash-next-vllm: low
+    qwen3.8-27b-nvfp4-vllm: low
 
 code_execution:
   mode: project
@@ -77,20 +86,57 @@ compression:
   codex_gpt55_autoraise: true
 ```
 
+### Hermes plugin `litellm-local` (recommended for Qwen 3.x reasoning)
+
+Without this plugin, `get_provider_profile("litellm-local")` returns `None` and Hermes falls back to the gate at `run_agent.py:_supports_reasoning_extra_body`, which only allows OpenRouter/Nous/GitHub Models/LMStudio/Ollama Cloud to receive `reasoning` / `reasoning_effort` in their request body. As a result `/reasoning <level>` and `--reasoning <level>` are silently dropped for our stack.
+
+Install the plugin at `~/.hermes/plugins/model-providers/litellm-local/__init__.py`:
+
+```python
+"""litellm-local provider profile.
+
+Translates Hermes' `reasoning_config` to a LiteLLM-proxy-backed vLLM endpoint
+(this Spark's setup). Registers a NEW canonical name so it does not interfere
+with the bundled `custom` profile.
+
+Wire shape (matches Qwen 3.x + LiteLLM proxy + vLLM):
+
+  - reasoning_config = {"enabled": False} (or effort="none")
+      → top-level reasoning_effort: "none"
+      → extra_body.chat_template_kwargs.enable_thinking: false
+        (the Qwen template flag that actually suppresses <think>...</think>)
+  - reasoning_config = {"enabled": True, "effort": "<level>"}
+      → top-level reasoning_effort: "<level>" for vLLM
+      → server picks the Qwen thinking depth
+
+Qwen 3.8 chat template accepts ONLY low/medium/xhigh. The plugin maps
+Hermes' universal level names to the Qwen native set:
+
+  none → none     minimal → low     low → low
+  medium → medium  high → xhigh    xhigh → xhigh
+  max → xhigh     ultra → xhigh
+
+Levels advertised to the Hermes UI: low/medium/xhigh (plus 'none').
+"""
+# See gemma4-optimizado for the full implementation reference.
+```
+
+The plugin advertises `low`, `medium`, `xhigh` (plus `none`) in the `/reasoning` slash command and CLI help, and silently maps the hidden levels so a user typing `/reasoning minimal` sees no error.
+
 Because LiteLLM auth is disabled, any non-empty `api_key` works (`sk-spark-local` is just a placeholder).
 
-`discover_models: false` keeps the picker limited to the two Qwen aliases. Without it, Hermes lists every model LiteLLM knows about (Ollama, MiniMax, embeddings, etc.).
+`discover_models: false` keeps the picker limited to the three Qwen aliases. Without it, Hermes lists every model LiteLLM knows about (Ollama, MiniMax, embeddings, etc.).
 
-Run Hermes with the default (thinking) model:
+Run Hermes with the default (Qwen3.8-Flash-Next):
 
 ```bash
 hermes chat
 ```
 
-Or explicitly pick the non-thinking model:
+Or explicitly pick the fallback:
 
 ```bash
-hermes chat -m qwen3.6-35b-a3b-vllm-fast
+hermes chat -m qwen3.8-27b-nvfp4-vllm
 ```
 
 ### Migrating from OpenClaw to Hermes
@@ -136,23 +182,28 @@ Add a single LiteLLM provider and select the active model:
         }
       },
       "models": {
-        "qwen3.6-35b-a3b-vllm": { "name": "Qwen3.6 35B-A3B vLLM (think, 262K)" },
-        "qwen3.6-35b-a3b-vllm-fast": { "name": "Qwen3.6 35B-A3B vLLM (no think, 262K)" }
+        "qwen3.8-flash-next-vllm":     { "name": "Qwen3.8-Flash-Next NVFP4 hybrid (DEFAULT 2026-09-01)" },
+        "qwen3.8-27b-nvfp4-vllm":      { "name": "Qwen3.8 27B NVFP4 + DSpark k=14 (FALLBACK lite)" },
+        "qwen3.6-35b-a3b-vllm":        { "name": "Qwen3.6 35B-A3B vLLM (LEGACY single-stream champion)" },
+        "qwen3.6-35b-a3b-vllm-fast":   { "name": "Qwen3.6 35B-A3B vLLM (no think, 262K)" }
       }
     }
   },
-  "model": "spark-litellm/qwen3.6-35b-a3b-vllm-fast"
+  "model": "spark-litellm/qwen3.8-flash-next-vllm"
 }
 ```
 
 Switch at runtime:
 
 ```bash
-# thinking mode
-opencode run -m spark-litellm/qwen3.6-35b-a3b-vllm "explain this bug"
+# default (Qwen3.8-Flash-Next, hybrid, reasoning low by default)
+opencode run -m spark-litellm/qwen3.8-flash-next-vllm "explain this bug"
 
-# non-thinking mode
-opencode run -m spark-litellm/qwen3.6-35b-a3b-vllm-fast "summarize this file"
+# fallback lite (Qwen 3.8 27B + DSpark, higher concurrency)
+opencode run -m spark-litellm/qwen3.8-27b-nvfp4-vllm "summarize this file"
+
+# legacy single-stream (Qwen 3.6 35B-A3B, requires manual swap of vLLM container)
+opencode run -m spark-litellm/qwen3.6-35b-a3b-vllm-fast "non-thinking chat"
 ```
 
 ---
@@ -436,45 +487,52 @@ opencode run -m litellm-remote/qwen3.6-35b-a3b-vllm-fast "hola"
 
 ## Switching between thinking and no-thinking modes
 
-Qwen 3.6 is a hybrid reasoning model: by default it emits a long internal chain-of-thought (`<think>...</think>`) before the final answer. vLLM exposes this through the chat-template flag `enable_thinking` inside `chat_template_kwargs`:
+Qwen 3.6, 3.8 and Qwen3.8-Flash-Next are hybrid reasoning models: they emit a long internal chain-of-thought (`<think>...</think>`) before the final answer when `enable_thinking` is on. vLLM exposes this through the chat-template flag `enable_thinking` inside `chat_template_kwargs`:
 
 - `enable_thinking: true`  → reasoning mode (higher quality for hard tasks, slower).
 - `enable_thinking: false` → non-reasoning mode (faster, lower latency, good for routine agent turns).
 
-The agent frameworks themselves do **not** send this flag automatically today. Because LiteLLM exposes both aliases, the cleanest way to choose a mode is to pick the model alias you want for each task or session.
+The agent frameworks themselves do **not** send this flag automatically today. Use the model aliases exposed by LiteLLM, or — better — install the [Hermes plugin `litellm-local`](#hermes) so that `/reasoning <level>` and `--reasoning <level>` translate to the right wire shape automatically.
 
 ### Hermes
 
-Hermes has a `/reasoning` command (`/reasoning none`, `/reasoning medium`, etc.) and an `agent.reasoning_effort` setting. Those map to provider-specific formats such as OpenRouter's `extra_body.reasoning`, Kimi's `extra_body.thinking`, or LM Studio's top-level `reasoning_effort`.
-
-For a **local vLLM/Qwen** endpoint, however, Hermes' generic reasoning controls do not translate into `chat_template_kwargs.enable_thinking`. Therefore `/reasoning none` will **not** disable Qwen 3.6 thinking. Use the two LiteLLM aliases instead:
+With the `litellm-local` plugin installed (recommended), use the built-in `/reasoning` slash command and CLI flag:
 
 ```bash
-hermes chat -m qwen3.6-35b-a3b-vllm      # reasoning mode
-hermes chat -m qwen3.6-35b-a3b-vllm-fast # non-reasoning mode
+hermes chat --reasoning low              # reasoning mode
+hermes chat --reasoning none             # non-reasoning mode
+# Or in-session:
+#   /reasoning xhigh
 ```
 
-### OpenClaw
+The plugin advertises `none`, `low`, `medium`, `xhigh` in the UI and quietly maps `minimal`/`high`/`max`/`ultra` to the closest Qwen native level. `agent.reasoning_overrides` in `~/.hermes/config.yaml` sets the per-model default:
 
-OpenClaw has been superseded by Hermes and has no dedicated reasoning/no-reasoning switch for local vLLM endpoints. Migrate with:
+```yaml
+agent:
+  reasoning_overrides:
+    qwen3.8-flash-next-vllm: low     # default: low reasoning for fast agentic work
+    qwen3.8-27b-nvfp4-vllm: low      # fallback lite
+```
+
+Without the plugin, `/reasoning none` does **not** disable Qwen thinking — use a non-reasoning alias instead:
 
 ```bash
-hermes claw migrate
+# Manual aliases (still works, less convenient)
+hermes chat -m qwen3.8-flash-next-vllm        # reasoning mode (default)
+hermes chat -m qwen3.6-35b-a3b-vllm-fast     # non-reasoning mode
 ```
-
-Then use the two-model pattern above.
 
 ### Opencode
 
 Opencode supports `--variant <effort>` and `--thinking` flags, but they control **display** of reasoning blocks or provider-specific reasoning effort, not Qwen's `enable_thinking` chat-template flag. There is no documented way to send `chat_template_kwargs` per model in `opencode.json`.
 
-Use two model entries and select the active one:
+Use one model entry per reasoning mode and select at runtime:
 
 ```bash
-# thinking mode
-opencode run -m spark-litellm/qwen3.6-35b-a3b-vllm "explain this bug"
+# reasoning mode
+opencode run -m spark-litellm/qwen3.8-flash-next-vllm "explain this bug"
 
-# non-thinking mode
+# non-reasoning mode (Qwen 3.6 legacy alias)
 opencode run -m spark-litellm/qwen3.6-35b-a3b-vllm-fast "summarize this file"
 ```
 
@@ -482,7 +540,8 @@ opencode run -m spark-litellm/qwen3.6-35b-a3b-vllm-fast "summarize this file"
 
 | Pattern | When to use |
 |---------|-------------|
-| **Two aliases** (`*-vllm` / `*-vllm-fast`) | Default. Pick the mode per task or per agent. |
+| **Hermes plugin `litellm-local`** + `/reasoning <level>` | **Recommended.** Single model + variable thinking mode. |
+| Two model aliases (`*-vllm` / `*-vllm-fast`) | Manual fallback. Pick the mode per task or per agent. |
 | LiteLLM proxy | Required when multiple tools (Hermes, Opencode, Open WebUI, n8n) share the same backend. |
 | Direct vLLM | Only for a single tool on the same machine; you still need two model aliases to toggle thinking. |
 
@@ -490,18 +549,25 @@ For routine agent turns (file edits, web searches, small code generation), the n
 
 ---
 
-## Tool calling with Qwen 3.6
+## Tool calling with Qwen 3.x
 
-Hermes (and most OpenAI-compatible agents) expect tool calls in the native `tool_calls` array of the chat-completion response. Qwen 3.6, however, emits tool calls as XML inside the message `content` unless vLLM is told to parse them.
+Hermes (and most OpenAI-compatible agents) expect tool calls in the native `tool_calls` array of the chat-completion response. Qwen 3.6 and 3.8 emit tool calls as XML inside the message `content` unless vLLM is told to parse them.
 
-When serving Qwen 3.6 with vLLM, add these flags:
+### Qwen 3.8 (default since 2026-09-01)
+
+For both **Qwen3.8-Flash-Next** (`qwen38-flash-dgx` image) and **Qwen 3.8 27B** (`vllm/vllm-openai:v0.27.1-aarch64`), add these flags:
 
 ```bash
+# Qwen3.8-Flash-Next (default):
 --enable-auto-tool-choice \
---tool-call-parser qwen3_coder
-```
+--tool-call-parser qwen3_coder \
+--reasoning-parser qwen3
 
-We intentionally omit `--reasoning-parser` for the `nvidia/Qwen3.6-35B-A3B-NVFP4` checkpoint because it does not emit `<think></think>` tags; with the parser enabled, reasoning leaks into the `reasoning` field and `content` appears empty in agents. With thinking enabled but no parser, reasoning and answer both land in `content`, which agents display correctly. The `auto_disable_thinking_with_tools` chat-template flag disables thinking automatically when tools are present.
+# Qwen 3.8 27B (fallback lite, uses DSpark k=14 drafter):
+--enable-auto-tool-choice \
+--tool-call-parser qwen3_xml \
+--reasoning-parser qwen3
+```
 
 The `qwen3_coder` parser is more robust for multi-turn tool calling than the older `qwen3_xml` parser. Without a parser, vLLM returns XML such as:
 
@@ -511,14 +577,18 @@ The `qwen3_coder` parser is more robust for multi-turn tool calling than the old
 
 Hermes sees the XML text but receives an empty `tool_calls` array, so it prints `<tool_call>` instead of executing the tool.
 
+### Qwen 3.6 (legacy)
+
+For **Qwen 3.6 35B-A3B** (`vllm/vllm-openai:nightly`, single-stream long-context config), the recipe is the same but we intentionally **omit `--reasoning-parser`** for the `nvidia/Qwen3.6-35B-A3B-NVFP4` checkpoint because it does not emit `<think></think>` tags; with the parser enabled, reasoning leaks into the `reasoning` field and `content` appears empty in agents. With thinking enabled but no parser, reasoning and answer both land in `content`, which agents display correctly. The `auto_disable_thinking_with_tools` chat-template flag disables thinking automatically when tools are present.
+
 ### Verify tool calls at the vLLM level
 
 ```bash
-curl -s http://localhost:8000/v1/chat/completions \
+curl -s http://localhost:8001/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "qwen3.6-35b-a3b",
-    "messages": [{"role": "user", "content": "weather in Paris"}],
+    "model": "qwen3.8-flash-next",
+    "messages": [{"role": "user", "content": "weather in Tokyo"}],
     "tools": [{"type": "function", "function": {"name": "get_weather", "description": "Get current weather for a location", "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}}}],
     "tool_choice": "auto"
   }' | jq '.choices[0].message.tool_calls'
@@ -533,7 +603,7 @@ A working response contains a populated `tool_calls` array:
     "type": "function",
     "function": {
       "name": "get_weather",
-      "arguments": "{\"location\": \"Paris\"}"
+      "arguments": "{\"location\": \"Tokyo\"}"
     }
   }
 ]
@@ -543,31 +613,62 @@ If the result is `null`, check that the parser flags are present in the launch s
 
 ## Long-context launch scripts
 
-For agentic workloads on the Spark, Qwen 3.6 35B-A3B is served with the nvidia checkpoint and vLLM nightly. The recommended default uses `--attention-backend flashinfer`, `--kv-cache-dtype fp8` and the **Marlin backend for NVFP4 on SM121** (set via `VLLM_TEST_FORCE_FP8_MARLIN=1` and `VLLM_MARLIN_USE_ATOMIC_ADD=1`). Marlin avoids the broken CUTLASS FP4 path on GB10 and lets vLLM use `torch.compile`/`CUDAGraph` without the `bmm_fp8` crash. With `--max-num-seqs 1` we use the model's full **262,144-token context window**.
+The Spark runs **one model at a time** because each stack consumes the entire unified-memory pool. Switch by stopping one systemd unit and starting another.
 
-| Script | `max_num_seqs` | `gpu-memory-utilization` | Context | Attention | Decode tok/s | Use case |
-|--------|---------------|--------------------------|---------|-----------|--------------|----------|
-| `run-qwen36-35b-a3b.sh` | 1 | 0.92 | **262K** | `flashinfer` + FP8 + Marlin | **~76** | **Recommended.** Single long-context session (~237K input + 25K output). |
-| `run-qwen36-35b-a3b-extreme-context-2seq.sh` | 1 | 0.92 | **262K** | `flashinfer` + FP8 + Marlin | **~76** | Alias to the script above for discoverability. |
+### Current default (2026-09-01): Qwen3.8-Flash-Next NVFP4 hybrid
 
-The 1-sequence/262K config is the best default for Hermes/OpenClaw because it uses the full model context while leaving a small safety margin for token-counting differences.
+The recipe [`blazux/qwen3.8-Flash-DGX`](https://github.com/blazux/qwen3.8-Flash-DGX) bundles 7 GB10-targeted patches on top of `vllm/vllm-openai:qwen38-flash-next` (release/qwen38next recipe). The script (`scripts/run-qwen38-flash-next.sh`) uses defaults validated in this repo's tuning study:
 
-Start the recommended config:
+| Variable | Value | Rationale |
+|----------|-------|-----------|
+| `--max-num-seqs` | 8 | Below concurrency targets — keeps @c=16 above 100 tok/s aggregate |
+| `--max-num-batched-tokens` | 8192 | 16384 fragmenta prefills in long contexts |
+| `--max-model-len` | 262144 | Native; use `YARN=1` for up to 500k |
+| `--gpu-memory-utilization` | 0.80 | 0.85 OOM-kills on 300k prefill with MTP |
+| `MTP` (env) | 2 | MTP=4 reduces decode by 7-34% |
+| `--enable-chunked-prefill` | ✓ | Required for long contexts |
+| `--enable-prefix-caching` | ✓ | 7.2× speedup on repeated system prompts |
+| `--tool-call-parser` | `qwen3_coder` | Robust multi-turn tool calling |
+| `--reasoning-parser` | `qwen3` | Native `<think>` block support |
 
-```bash
-./scripts/run-qwen36-35b-a3b.sh
-```
+Environment variables set inside the container: `VLLM_PLE_MMAP=1` (serves the 48 GiB PLE n-gram table from NVMe via `mmap`), `VLLM_QSA_EXACT_TOPK=1` (deterministic QSA top-k), `VLLM_PLE_MMAP_WORKERS=32`.
 
-## Choosing the right model alias
+**Performance (DGX Spark, page cache warm ~25 min):**
 
-With the current vLLM-only setup on the Spark, the usable Qwen 3.6 35B-A3B aliases are the two LiteLLM-routed `*-vllm` models. The non-`-vllm` aliases (e.g. `qwen3.6-35b-a3b`, `qwen3.6-35b-a3b-fast`) previously routed to local llama.cpp/Ollama endpoints and are no longer active.
+| Workload | Tokens/s |
+|----------|---------:|
+| chat_short warm | **36.66** |
+| code_quicksort fresh | 28.52 |
+| agent_with_tools | 23.59 |
+| tool loop multi-step (4 steps, 3 tools) | 28.65 median |
+| Aggregate c=1 | 30.29 |
+| Aggregate c=8 | **116.75** |
+| Aggregate c=16 | **129.65** |
+| Aggregate c=32 | 129.69 (plateau) |
+| Prefill cold (8K) | 1018 tok/s |
+| Prefix-hit TTFT (same 20K prompt) | **1.46 s** |
+| Determinism @ T=0 (EXACT_TOPK=1) | ✓ |
+
+### Fallback lite: Qwen 3.8 27B NVFP4 + DSpark k=14
+
+For workloads that need higher aggregate throughput (e.g. many parallel auxiliary agents in Hermes/Opencode), the 27B + DSpark k=14 keeps `@c=16` at **253 tok/s aggregate** thanks to its external drafter. Cold start is faster (~5-8 min vs 14 min).
+
+### Single-stream long-context champion: Qwen 3.6 35B-A3B
+
+If you need ~76 tok/s sustained on a single long-context session (~237K input + 25K output), Qwen 3.6 with the nvidia NVFP4 checkpoint + Marlin backend + `flashinfer` + FP8 KV is still the fastest. It sacrifices concurrency (1-seq/262K) but recovers the original 75-77 tok/s while using the model's full context window. Recipe: `--moe-backend marlin --attention-backend flashinfer --kv-cache-dtype fp8 --max-num-seqs 1 --max-model-len 262144`, with `VLLM_TEST_FORCE_FP8_MARLIN=1` and `VLLM_MARLIN_USE_ATOMIC_ADD=1` in the container env.
+
+### Choosing the right model alias
+
+Each model is exposed under one or more LiteLLM aliases. Pick the one matching the current vLLM container.
 
 | Alias | Backend | Context | Thinking | Use case |
 |-------|---------|---------|----------|----------|
-| `qwen3.6-35b-a3b-vllm` | LiteLLM → vLLM | 262K | enabled | Reasoning mode (hard tasks, planning) |
-| `qwen3.6-35b-a3b-vllm-fast` | LiteLLM → vLLM | 262K | disabled | Non-reasoning mode (fast routine turns) |
+| `qwen3.8-flash-next-vllm` | LiteLLM → vLLM `release/qwen38next` + 7 parches GB10 | 262K (500K YaRN) | enabled (low by default) | **Default 2026-09-01.** Agentic workflows, código, razonamiento, multimodal |
+| `qwen3.8-27b-nvfp4-vllm` | LiteLLM → vLLM 0.27.1 + DSpark k=14 | 262K (1M YaRN) | enabled (low by default) | **Fallback lite.** Concurrencia @c=16 con DSpark |
+| `qwen3.6-35b-a3b-vllm` | LiteLLM → vLLM nightly + Marlin | 262K | enabled | **Single-session long-context champion** (~76 tok/s) |
+| `qwen3.6-35b-a3b-vllm-fast` | LiteLLM → vLLM nightly + Marlin | 262K | disabled | Non-reasoning mode for fast routine turns |
 
-For agentic work that benefits from reasoning, use the `*-vllm` variant. For faster, non-reasoning turns, use `*-vllm-fast`.
+For agentic work that benefits from reasoning, use the `*-vllm` variants. For faster, non-reasoning turns, use `*-vllm-fast` or set `reasoning_overrides: none` in Hermes.
 
 ---
 

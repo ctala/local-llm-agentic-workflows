@@ -31,7 +31,9 @@ Text benchmarks used a ~120-token Spanish prompt, `max_tokens=512`, temperature 
 
 | Model | Checkpoint | Framework / container | Decode tok/s | Hot TTFT | Memory | Notes |
 |-------|------------|----------------------|--------------|----------|--------|-------|
-| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~76** | ~0.10 s | ~22 GB | **Current recommended.** W4A16 NVFP4 (`modelopt`), `flashinfer` backend, FP8 KV cache, Marlin NVFP4 backend for SM121, `qwen3_coder` parser, **262K context**, 1 sequence. Recovers the original ~75–77 tok/s while using the model's full context window. |
+| **Qwen3.8-Flash-Next NVFP4 hybrid** | `RadixArk/Qwen3.8-Flash-Next-NVFP4` | `qwen38-flash-dgx` (vLLM `release/qwen38next` + 7 parches GB10) | **~37** warm / **117 @c=8** | ~0.24 s | **~98 GB** | **Current default (2026-09-01).** MoE 176B (6B activos), GSM8K 97.27%, AIME26 98.75%. Recipe [`blazux/qwen3.8-Flash-DGX`](https://github.com/blazux/qwen3.8-Flash-DGX). NVFP4 experts + fp8 side layers. Cold start 14 min. |
+| **Qwen 3.8 27B NVFP4 + DSpark k=14** | `unsloth/Qwen3.8-27B-NVFP4` | `vllm/vllm-openai:v0.27.1-aarch64` | 30 fresh / 70-76 warm / **253 @c=16** | ~0.10 s | ~105 GB | **Fallback lite.** DSpark k=14 drafter externo, prefix caching obligatorio. Multimodal texto+imagen+video. Mejor concurrencia. |
+| **Qwen 3.6 35B-A3B** | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:nightly` | **~76** | ~0.10 s | ~22 GB | Single-stream speed champion con long-context 262K. W4A16 NVFP4 (`modelopt`), `flashinfer` backend, FP8 KV cache, Marlin NVFP4 backend for SM121, `qwen3_coder` parser, **262K context**, 1 sequence. |
 | **Gemma 4 26B-A4B IT** | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` + `gemma4_patched.py` | `vllm/vllm-openai:gemma4-cu130` | **~49.5** | ~0.08 s | ~22 GB | Best raw speed for agents. Requires community patch. |
 | Qwen 3.6 35B-A3B | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | ~42.2 | ~0.10 s | ~22 GB | `compressed-tensors` format. Stable previous checkpoint. |
 | **Nemotron-3-Nano-Omni-30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~40.0** | ~0.10 s | **~40 GB** | **Official multimodal**: text + image work. Audio decoding still unresolved in this container. |
@@ -41,7 +43,7 @@ Text benchmarks used a ~120-token Spanish prompt, `max_tokens=512`, temperature 
 | **Nemotron-3-Nano-30B-A3B** | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~28.8** | ~0.22 s | **~118 GB** | Dense BF16. Uses almost all unified memory. |
 | Nemotron-3-Nano-30B-A3B | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | `vllm/vllm-openai:gemma4-0505-cu130` | ~28.3 | ~0.20 s | ~72 GB | vLLM alternative. Stop other GPU services first. |
 | **Nemotron-3-Super-120B-A12B** | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4` | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | **~14.7** | ~0.29 s | **~110 GB** | Official NVFP4 checkpoint. Higher quality, lower speed due to more active experts. |
-| **Gemma 4 31B IT** | `nvidia/Gemma-4-31B-IT-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~6.7** | ~1.8 s | ~31 GB | Dense, memory-bandwidth limited. Not recommended for fast interaction. |
+| **Gemma 4 31B IT** | `nvidia/Gemma-4-31B-IT-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | **~6.7** | ~1.8 s | ~31 GB | Dense, memory-bandwidth limited. Not recommended for fast interactive use. |
 | Qwen 3.6 35B-A3B (MTP) | `RedHatAI/Qwen3.6-35B-A3B-NVFP4` | `vllm/vllm-openai:gemma4-0505-cu130` | Load error | – | – | `moe_backend='marlin'` not supported by the non-quantized drafter. |
 | Gemma 4 26B-A4B on TRT-LLM 1.3.0rc13 | `nvidia/Gemma-4-26B-A4B-NVFP4` | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | Load error | – | – | Transformers in container does not recognize `model_type: gemma4`. |
 | Qwen 3.6 35B-A3B on TRT-LLM 1.3.0rc13 | `nvidia/Qwen3.6-35B-A3B-NVFP4` | `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc13` | Load error | – | – | `AssertionError` in `quant_algo` for modelopt NVFP4 checkpoint. |
@@ -49,7 +51,9 @@ Text benchmarks used a ~120-token Spanish prompt, `max_tokens=512`, temperature 
 
 ### Key takeaways
 
-- **For best quality/speed balance (~76 tok/s)**: use **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** with `--attention-backend flashinfer`, `--kv-cache-dtype fp8`, `--moe-backend marlin`, `VLLM_TEST_FORCE_FP8_MARLIN=1` and `VLLM_MARLIN_USE_ATOMIC_ADD=1`. The Marlin backend avoids the broken CUTLASS FP4 path on GB10/SM121 and lets vLLM use `torch.compile`/`CUDAGraph` without the `bmm_fp8` crash we saw earlier. With `--max-num-seqs 1` we run the model's full **262,144-token context window**. This keeps ~75–76 tok/s while giving agents ~237K tokens of input budget plus 25K of output headroom.
+- **Current default (2026-09-01): Qwen3.8-Flash-Next NVFP4 hybrid** — best quality/speed balance for agentic workflows on the Spark. **~37 tok/s warm single-stream, 117 @c=8 aggregate, GSM8K 97.27%, AIME26 98.75%**, MoE 176B (6B activos), multimodal texto+imagen+video, 262K contexto nativo (500K YaRN). Recipe upstream [`blazux/qwen3.8-Flash-DGX`](https://github.com/blazux/qwen3.8-Flash-DGX) (7 parches GB10 sobre vLLM `release/qwen38next`). Cold start ~14 min. Disco: ~139 GB.
+- **Fallback lite: Qwen 3.8 27B NVFP4 + DSpark k=14** — single-stream 30 tok/s fresh, 70-76 warm, **253 tok/s @c=16 aggregate**. Multimodal, 262K contexto. Mejor que Qwen 3.6 cuando se necesita concurrencia para múltiples auxiliares Hermes/Opencode en paralelo.
+- **Single-stream champion (long-context): Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** with `--attention-backend flashinfer`, `--kv-cache-dtype fp8`, `--moe-backend marlin`, `VLLM_TEST_FORCE_FP8_MARLIN=1` and `VLLM_MARLIN_USE_ATOMIC_ADD=1`. The Marlin backend avoids the broken CUTLASS FP4 path on GB10/SM121 and lets vLLM use `torch.compile`/`CUDAGraph` without the `bmm_fp8` crash we saw earlier. With `--max-num-seqs 1` we run the model's full **262,144-token context window**. This keeps ~75–76 tok/s while giving agents ~237K tokens of input budget plus 25K of output headroom. **Sacrifica concurrencia (1 secuencia)** — incompatible con agentes que corren múltiples auxiliares.
 - **For maximum speed (~50 tok/s)**: use **Gemma 4 26B-A4B community + patch**.
 - **Qwen 3.6 35B-A3B RedHatAI** (~42 tok/s) remains a stable fallback if the nvidia checkpoint or nightly image are unavailable.
 - **Gemma 4 31B dense** is not viable for fast interactive use on GB10 (~7 tok/s).
@@ -212,7 +216,9 @@ Ready-to-run recipes are in [`scripts/`](scripts/):
 | Script | Model / framework |
 |--------|-------------------|
 | `scripts/run-gemma4-26b-a4b.sh` | Gemma 4 26B-A4B IT NVFP4 community patch on vLLM |
-| `scripts/run-qwen36-35b-a3b.sh` | **Qwen 3.6 35B-A3B nvidia NVFP4 on vLLM nightly (recommended, 262K context, 1 seq)** |
+| `scripts/run-qwen38-flash-next.sh` | **Qwen3.8-Flash-Next NVFP4 hybrid on vLLM `release/qwen38next` (default 2026-09-01, recipe [`blazux/qwen3.8-Flash-DGX`](https://github.com/blazux/qwen3.8-Flash-DGX))** |
+| `scripts/run-qwen38-27b-nvfp4-dspark.sh` | **Qwen 3.8 27B NVFP4 + DSpark k=14 on vLLM 0.27.1 (fallback lite)** |
+| `scripts/run-qwen36-35b-a3b.sh` | Qwen 3.6 35B-A3B nvidia NVFP4 on vLLM nightly (262K context, 1 seq, single-stream champion) |
 | `scripts/run-qwen36-35b-a3b-extreme-context-2seq.sh` | Alias to `run-qwen36-35b-a3b.sh` (262K × 1 session) |
 | `scripts/run-qwen36-35b-a3b-trtllm.sh` | Qwen 3.6 35B-A3B custom MLP-only NVFP4 on TRT-LLM |
 | `scripts/run-gemma4-31b.sh` | Gemma 4 31B IT NVFP4 on vLLM |
@@ -247,7 +253,9 @@ python3 benchmarks/bench_model.py gemma-4-26b-a4b 512
 
 For agentic workflows on DGX Spark and similar 96–128 GB edge AI workstations:
 
-- **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** → **~76 tok/s** with `--attention-backend flashinfer`, `--kv-cache-dtype fp8`, `--moe-backend marlin`, `VLLM_TEST_FORCE_FP8_MARLIN=1` and `VLLM_MARLIN_USE_ATOMIC_ADD=1`. Tool calling with `qwen3_coder`, image/video support, and **262K context** with 1 sequence — ~237K input + 25K output budget for agent sessions on the Spark. **This is the current default recommendation.**
+- **Qwen3.8-Flash-Next NVFP4 hybrid + vLLM `release/qwen38next` + 7 parches GB10** → **default actual (2026-09-01).** ~37 tok/s warm single-stream, **117 @c=8 aggregate**, MoE 176B (6B activos), **GSM8K 97.27%, AIME26 98.75%**, multimodal texto+imagen+video, 262K contexto nativo (500K YaRN). Recipe [`blazux/qwen3.8-Flash-DGX`](https://github.com/blazux/qwen3.8-Flash-DGX). Cold start ~14 min. Disco ~139 GB.
+- **Qwen 3.8 27B NVFP4 + DSpark k=14** → **fallback lite**. ~30 tok/s fresh, 70-76 warm cache, **253 tok/s @c=16 aggregate**, multimodal, 262K contexto (1M YaRN). Excelente para agentes con muchos auxiliares en paralelo.
+- **Qwen 3.6 35B-A3B nvidia NVFP4 + vLLM nightly** → single-stream speed champion con long-context 262K. **~76 tok/s** con `--attention-backend flashinfer`, `--kv-cache-dtype fp8`, `--moe-backend marlin`, `VLLM_TEST_FORCE_FP8_MARLIN=1` y `VLLM_MARLIN_USE_ATOMIC_ADD=1`. Tool calling con `qwen3_coder`, image/video, **262K contexto** con 1 sequence — ~237K input + 25K output. **Sacrifica concurrencia (1 sola secuencia)** — incompatible con agentes que corren múltiples auxiliares.
 - **Gemma 4 26B-A4B community + patch** → ~49.5 tok/s, tool calling, low VRAM.
 - **Qwen 3.6 35B-A3B RedHatAI** → ~42.2 tok/s, stable fallback if the nvidia checkpoint or nightly image are unavailable.
 - **Qwen 3.6 35B-A3B MLP-only NVFP4** (custom TRT-LLM) → ~34.4 tok/s if you prefer the official NVIDIA stack.
@@ -256,4 +264,13 @@ For agentic workflows on DGX Spark and similar 96–128 GB edge AI workstations:
 
 Gemma 4 31B dense should be reserved only for tasks where the dense model quality justifies ~7 tok/s.
 
-**If your agent framework (OpenClaw, Hermes, etc.) needs the largest practical context window on a single local GPU**, Qwen 3.6 35B-A3B on vLLM is the clear choice: it delivers the model's full **262,144 tokens** with 1 concurrent session by default. We configure LiteLLM/Hermes for **237K input + 25K output** to stay within the hard limit while maximizing usable context.
+**Choosing the right model**:
+
+| Escenario | Modelo | Por qué |
+|---|---|---|
+| **Default operativo (2026-09-01)**: agentic workflows, código, razonamiento, multimodal | Qwen3.8-Flash-Next hybrid | Mejor balance calidad/concurrencia/multimodal |
+| Single-stream long-context máximo (1 sesión × 262K, prioriza velocidad pura) | Qwen 3.6 35B-A3B nvidia NVFP4 | ~76 tok/s sustained con Marlin + flashinfer |
+| Concurrencia máxima (8+ auxiliares Hermes/Opencode en paralelo) | Qwen 3.8 27B + DSpark k=14 | 253 tok/s @c=16 |
+| Velocidad pura en agente corto (< 128K ctx) | Gemma 4 26B-A4B community | ~50 tok/s, baja VRAM |
+| Calidad máxima + razonamiento pesado | Qwen3.8-Flash-Next hybrid (GSM8K 97.27%) | MoE 176B |
+| Solo texto, sin multimodal, baja concurrencia | Nemotron-3-Super 120B (TRT-LLM) | Calidad máxima oficial |
