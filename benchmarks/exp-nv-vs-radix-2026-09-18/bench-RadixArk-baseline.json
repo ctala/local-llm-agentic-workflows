@@ -1,0 +1,40 @@
+{
+  "variant": "RadixArk-baseline",
+  "date": "2026-09-18T11:55:25",
+  "single_stream": {
+    "chat_short": {
+      "dt": 7.69376015663147,
+      "tokens": 181,
+      "tok_s": 23.52555789563975,
+      "reasoning": 148,
+      "content_len": 145,
+      "content": "\n\nUn LLM predice texto token por token, aprendiendo patrones del lenguaje a partir de grandes textos. Entiende instrucciones y genera respuestas."
+    },
+    "code_quicksort": {
+      "dt": 16.258838415145874,
+      "tokens": 400,
+      "tok_s": 24.602003524887802,
+      "reasoning": 400,
+      "content_len": 0,
+      "content": ""
+    },
+    "agent_with_tools": {
+      "dt": 19.049010515213013,
+      "tokens": 400,
+      "tok_s": 20.998466019038105,
+      "reasoning": 368,
+      "content_len": 60,
+      "content": "\n\nBut final should show tool calls. Need ~150 tokens. But if"
+    }
+  },
+  "vision": {
+    "voxcpm": {
+      "dt": 10.231035232543945,
+      "tokens": 200,
+      "tok_s": 19.548363919598195,
+      "reasoning": 200,
+      "content_len": 0,
+      "content": ""
+    }
+  }
+}
