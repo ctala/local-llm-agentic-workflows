@@ -57,7 +57,7 @@ For local LLM deployment on DGX Spark or equivalent 96–128 GB edge hardware, s
 
 > **New (October 2026): [23 configurations benchmarked at 128K context × 4 users on vLLM 0.31.0](./benchmarks/)**, with [copy-paste recipes](./recipes/) and an [agent prompt](./deploy-with-agent/) that deploys any of them for you. Short version:
 >
-> - **Fastest overall:** Qwen3.6-35B-A3B NVFP4 + MTP: 102 tok/s for one user, 240 tok/s total with 4 users, ~55 GB.
+> - **Fastest overall:** Qwen3.6-35B-A3B NVFP4 + MTP: 102 tok/s for one user, 240 tok/s total with 4 users, ~56 GB.
 > - **Fastest small model:** GPT-OSS-20B: 96 tok/s, ~26 GB.
 > - **Agents with long context:** Nemotron 3.5 Lightning + DSpark: 94 tok/s, 213 tok/s with 4 users.
 > - **Largest that fits:** Nemotron 3 Super 120B-A12B + MTP: 23 tok/s, ~95 GB. Now works on vLLM.

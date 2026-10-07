@@ -2,7 +2,7 @@
  "en": [
   [
    "What is the fastest LLM on the NVIDIA DGX Spark?",
-   "In our October 2026 round at 128K context and 4 concurrent users, Qwen3.6-35B-A3B NVFP4 on vLLM 0.31.0 with MTP speculative decoding was the fastest: 102.3 tok/s for one user and 240.0 tok/s total with 4 users, using about 47 GB of the 128 GB unified memory."
+   "In our October 2026 round at 128K context and 4 concurrent users, Qwen3.6-35B-A3B NVFP4 on vLLM 0.31.0 with MTP speculative decoding was the fastest: 102.3 tok/s for one user and 240.0 tok/s total with 4 users, using about 56 GB of the 128 GB unified memory."
   ],
   [
    "Is NVIDIA NIM faster than vLLM on the DGX Spark?",
@@ -24,7 +24,7 @@
  "es": [
   [
    "¿Cuál es el modelo más rápido en el NVIDIA DGX Spark?",
-   "En nuestra ronda de octubre de 2026 con 128K de contexto y 4 usuarios simultáneos, Qwen3.6-35B-A3B NVFP4 on vLLM 0.31.0 with MTP speculative decoding fue el más rápido: 102.3 tok/s con un usuario y 240.0 tok/s en total con 4 usuarios, usando unos 47 GB de los 128 GB de memoria unificada."
+   "En nuestra ronda de octubre de 2026 con 128K de contexto y 4 usuarios simultáneos, el más rápido fue Qwen3.6-35B-A3B NVFP4 con vLLM 0.31.0 y decodificación especulativa MTP: 102.3 tok/s con un usuario y 240.0 tok/s en total con 4 usuarios, usando unos 56 GB de los 128 GB de memoria unificada."
   ],
   [
    "¿Un NIM de NVIDIA es más rápido que vLLM en el DGX Spark?",
