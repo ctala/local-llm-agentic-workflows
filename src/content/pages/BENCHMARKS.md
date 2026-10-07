@@ -19,7 +19,7 @@ keywords:
 
 # DGX Spark LLM Benchmark — October 2026 (128K context × 4 users)
 
-> **Short answer:** the fastest well-rounded model on a single NVIDIA DGX Spark is **Qwen3.6-35B-A3B NVFP4 on vLLM 0.31.0 with MTP speculative decoding**: **102.3 tok/s** for one user and **240.0 tok/s** total with 4 users, at 128K context, using ~47 GB. It sustained 218.0 tok/s for 15 minutes with zero failed requests.
+> **Short answer:** the fastest well-rounded model on a single NVIDIA DGX Spark is **Qwen3.6-35B-A3B NVFP4 on vLLM 0.31.0 with MTP speculative decoding**: **102.3 tok/s** for one user and **240.0 tok/s** total with 4 users, at 128K context, using ~56 GB. It sustained 218.0 tok/s for 15 minutes with zero failed requests.
 >
 > Español: [Benchmark DGX Spark (octubre 2026)](/local-llm-agentic-workflows/benchmarks.es/) · Ready-to-run configs: [Recipes](/local-llm-agentic-workflows/recipes/) · Let an AI agent deploy one: [Agent prompt](/local-llm-agentic-workflows/deploy-with-agent/)
 
@@ -71,10 +71,10 @@ MTP never lowers quality (the main model verifies every drafted token); what cha
 
 | Workload | Without MTP | MTP, temp 0 | MTP, temp 0.7 | MTP acceptance |
 |---|---:|---:|---:|---:|
-| Code | – | **–** | – | ––– % |
-| JSON / tool calls | – | **–** | – | ––– % |
-| Long summary | – | **–** | – | ––– % |
-| Spanish writing | – | **–** | – | ––– % |
+| Code | 78.6 | **125.2** | 117.1 | 84.2–77.4 % |
+| JSON / tool calls | 79.2 | **129.3** | 120.3 | 90.2–82.6 % |
+| Long summary | 75.0 | **106.2** | 102.8 | 70.4–67.6 % |
+| Spanish writing | 78.4 | **95.1** | 92.4 | 51.3–49.3 % |
 | **15 min sustained, 4 users** | 170.9 | **218.0** (mixed) | | 69.3 % |
 
 - **Agents and code benefit most** (+55–65%). Free-form writing gains least (+20%).
@@ -112,7 +112,7 @@ NIMs are convenient and pass vLLM flags through, but on the Spark a plain, recen
 
 ### What is the fastest LLM on the NVIDIA DGX Spark?
 
-In our October 2026 round at 128K context and 4 concurrent users, Qwen3.6-35B-A3B NVFP4 on vLLM 0.31.0 with MTP speculative decoding was the fastest: 102.3 tok/s for one user and 240.0 tok/s total with 4 users, using about 47 GB of the 128 GB unified memory.
+In our October 2026 round at 128K context and 4 concurrent users, Qwen3.6-35B-A3B NVFP4 on vLLM 0.31.0 with MTP speculative decoding was the fastest: 102.3 tok/s for one user and 240.0 tok/s total with 4 users, using about 56 GB of the 128 GB unified memory.
 
 ### Is NVIDIA NIM faster than vLLM on the DGX Spark?
 

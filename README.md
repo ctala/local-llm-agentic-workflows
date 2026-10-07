@@ -1,71 +1,73 @@
-# Local LLM Agentic Workflows
+# Local LLM Agentic Workflows on the NVIDIA DGX Spark
 
-A practical guide, reproducible benchmarks and ready-to-run Docker recipes for running the best local LLMs on high-memory edge AI hardware such as the **NVIDIA DGX Spark** (GB10 Grace Blackwell, 128 GB unified memory) and other 96–128 GB edge AI workstations.
+Same-hardware benchmarks, tested `docker run` recipes and an agent deployment prompt for running local LLMs on the **NVIDIA DGX Spark** (GB10 Grace Blackwell, 128 GB unified memory, aarch64) and other 96–128 GB edge AI workstations.
 
-**Live site:** [ctala.github.io/local-llm-agentic-workflows](https://ctala.github.io/local-llm-agentic-workflows/)
+**Live site:** [ctala.github.io/local-llm-agentic-workflows](https://ctala.github.io/local-llm-agentic-workflows/) · [Leer en español](README.es.md)
 
-## Quick links
+## Start here
 
-- **[October 2026 benchmark: 23 configurations at 128K context × 4 users](https://ctala.github.io/local-llm-agentic-workflows/benchmarks/)** ([español](https://ctala.github.io/local-llm-agentic-workflows/benchmarks.es/))
-- **[Copy-paste recipes](https://ctala.github.io/local-llm-agentic-workflows/recipes/)** ([español](https://ctala.github.io/local-llm-agentic-workflows/recipes.es/)): YAML in [`recipes/`](recipes/), turned into `docker run` by [`scripts/recipe_to_docker.py`](scripts/recipe_to_docker.py)
-- **[Agent deployment prompt](https://ctala.github.io/local-llm-agentic-workflows/deploy-with-agent/)** ([español](https://ctala.github.io/local-llm-agentic-workflows/deploy-with-agent.es/)): let Claude Code, Codex or OpenCode deploy a recipe
-- [Benchmark script](benchmarks/standard-round/standard_round.py) (Python stdlib only, any OpenAI-compatible endpoint)
-- [Results](https://ctala.github.io/local-llm-agentic-workflows/results/)
-- [Setup guide](https://ctala.github.io/local-llm-agentic-workflows/setup/)
-- [Agent integration (Hermes / OpenClaw / Opencode)](https://ctala.github.io/local-llm-agentic-workflows/agents/)
-- [Full local stack](https://ctala.github.io/local-llm-agentic-workflows/stack/)
+- **[October 2026 benchmark](https://ctala.github.io/local-llm-agentic-workflows/benchmarks/)**: 23 configurations at 128K context × 4 concurrent users on vLLM 0.31.0 and NVIDIA NIM.
+- **[Recipes](https://ctala.github.io/local-llm-agentic-workflows/recipes/)**: weight download and `docker run` for each configuration. Source YAML in [`recipes/`](recipes/).
+- **[Agent deployment prompt](https://ctala.github.io/local-llm-agentic-workflows/deploy-with-agent/)**: paste it into Claude Code, Codex or OpenCode on the Spark and it deploys a recipe for you. Also in [`recipes/AGENT-PROMPT.md`](recipes/AGENT-PROMPT.md).
 
-## Quick answers (October 2026, vLLM 0.31.0, 128K context × 4 users)
+## Quick answers (October 2026, vLLM 0.31.0, 128K context × 4 users, FP8 KV cache)
 
 | Need | Pick | 1 user | 4 users (total) | Memory |
 |---|---|---:|---:|---:|
-| Fastest overall, multimodal, tools | Qwen3.6-35B-A3B NVFP4 + MTP | 102 tok/s | 240 tok/s | ~55 GB |
+| Fastest overall, multimodal, tools | Qwen3.6-35B-A3B NVFP4 + MTP | 102 tok/s | 240 tok/s | ~56 GB |
 | Small and fast | GPT-OSS-20B | 96 tok/s | 151 tok/s | ~26 GB |
 | Agents, long context | Nemotron 3.5 Lightning 30B-A3B + DSpark | 94 tok/s | 213 tok/s | ~44 GB |
 | Image, audio and video input | Nemotron 3 Nano Omni 30B-A3B | 59 tok/s | 185 tok/s | ~44 GB |
+| Image and audio, Google model | Gemma 4 26B-A4B + MTP drafter | 57 tok/s | 187 tok/s | ~45 GB |
+| Large reasoning model | GPT-OSS-120B | 44 tok/s | 125 tok/s | ~81 GB |
 | Largest that fits | Nemotron 3 Super 120B-A12B + MTP | 23 tok/s | 57 tok/s | ~95 GB |
 
-Full table, speculative-decoding comparison (MTP, DSpark, DFlash, Eagle3), NIM vs vLLM and what does not fit: [benchmarks](https://ctala.github.io/local-llm-agentic-workflows/benchmarks/).
+What we learned:
 
-### Earlier results (September 2026)
+- **Speculative decoding pays off for agents and code.** Qwen3.6 + MTP goes from ~79 to ~125–129 tok/s on code and tool-call JSON (84–90% acceptance), but only to ~95 tok/s on free-form writing.
+- **Not every drafter helps.** Eagle3 made GPT-OSS slower (20B: 96 → 59 tok/s), DFlash was slower than plain Qwen3.6, and DSpark barely helped Qwen3.8-27B on fresh text.
+- **NIM vs vLLM:** with the same model, a plain vLLM 0.31.0 container matched or beat the official NIM. Some NIMs are amd64-only and do not run on the Spark.
+- **Nemotron 3 Super 120B now runs on vLLM 0.31.0** (earlier images failed; see the earlier results).
+- **Always set `--gpu-memory-utilization`.** On unified memory, vLLM's 0.9 default reserves ~110 GB even for a 20 GB model.
+- **Llama 3.3 70B does not fit at 128K × 4** (dense KV cache, ~133 GB). Use 1–2 users.
 
-> ⚠️ **Comparación apples-to-apples.** Todos los números son del mismo Spark, mismos prompts, mismo método de medición. La columna **single-stream** mide 1 usuario con 1 request; la columna **@c=8 aggregate** mide 8 requests concurrentes. Single-stream warm = primer request después del cold start (TTFT ~0.24 s, prefix cache poblado).
->
-> "70-76 tok/s warm cache" del 27B con DSpark que aparece en otros benchmarks mide un escenario de edición muy específico con prefix cache al 100% caliente — NO comparable con uso real interactivo.
->
-> **Total = parámetros totales del modelo · Activos = los que se ejecutan por token (importante para el bandwidth del decode).**
+## Run a recipe
 
-| Modelo | **Params (total / activos)** | **Single-stream warm (1 user)** | **Single-stream fresh (1 user, primer request)** | **Aggregate @c=8 (8 users)** | Trade-off principal |
-|---|---|---:|---:|---:|---|
-| **Qwen3.8-Flash-Next NVFP4 hybrid** | **176B / 6B** (MoE 512 routed top-10 + 1 shared + PLE 51B) | **36.66 tok/s** chat | ~22 tok/s (cold TTFT 2.7s) | **116.75 tok/s** | **Default 2026-09-01.** Mejor calidad (GSM8K 97.27%), multimodal completo, 262K contexto. Solo 6B activos = muy eficiente en bandwidth. |
-| **Qwen 3.8 27B NVFP4 + DSpark k=14** | 27B / 27B (dense) | 13.93 tok/s chat (fresh) | 13.93 tok/s | 40.40 tok/s fresh / 182 warm | **Fallback lite.** Mejor concurrencia con prefix caching (253 @c=16 warm), pero pierde single-stream fresh. 27B activos pesan en bandwidth. |
-| **Qwen 3.6 35B-A3B** (nvidia NVFP4, 1-seq/262K) | 35B / 3B (MoE top-K small) | **~76 tok/s** | ~76 tok/s | ~76 tok/s (limitado por max-num-seqs=1) | **Single-stream long-context champion** — sacrifica concurrencia (1-seq/262K, sin batching). Solo 3B activos, banda ultra-baja. |
-| **Gemma 4 26B-A4B IT** (community patch) | 26B / 4B (MoE) | **~49.5 tok/s** | ~49.5 tok/s | n/a medido | Velocidad pura para agentes cortos. |
-| **Qwen 3.6 35B-A3B** (RedHatAI) | 35B / 3B (MoE) | ~42.2 tok/s | ~42.2 tok/s | n/a medido | Stable fallback. |
-| **Nemotron-3-Nano-Omni-30B-A3B** | 30B / 3B (MoE) | ~40.0 tok/s | ~40.0 tok/s | n/a medido | Multimodal oficial NVIDIA (text+image). |
-| **Nemotron-3-Super-120B-A12B** | 120B / 12B (MoE) | ~14.7 tok/s | ~14.7 tok/s | n/a medido | Calidad máxima oficial, TRT-LLM only. |
-| **Gemma 4 31B IT** | 31B / 31B (dense) | ~6.7 tok/s | ~6.7 tok/s | n/a medido | Solo si se necesita el dense. Banda saturada por 31B activos. |
+```bash
+git clone https://github.com/ctala/local-llm-agentic-workflows.git && cd local-llm-agentic-workflows
+pip install pyyaml "huggingface_hub[cli]"
+hf download nvidia/Qwen3.6-35B-A3B-NVFP4 --local-dir ~/vllm/qwen3.6-35b-a3b-nvfp4-nvidia
+python3 scripts/recipe_to_docker.py recipes/qwen36-35b-a3b-nvfp4-rapida-v031-mtp.yaml   # prints the docker run
+```
 
-**Resumen rápido**: para uso agentico en el Spark hoy (2026-09-01), **Qwen3.8-Flash-Next hybrid** es el mejor balance entre velocidad, calidad y multimodal. **Qwen 3.6 35B-A3B** sigue siendo el más rápido en single-stream long-context (3B activos es la clave), pero no aguanta concurrencia. **Qwen 3.8 27B + DSpark** gana en concurrencia pero pierde single-stream fresh.
+Each recipe lists its `download` commands, the `measured` configuration (context, users, KV cache, `gpu_util`, speed) and the full `entry` (image, env, vLLM args). Pass `--ctx`, `--users`, `--kv` or `--gpu-util` to `recipe_to_docker.py` for other configurations.
 
-> Full benchmark tables and launch scripts are in the [Results](/local-llm-agentic-workflows/results/) page.
+Measure your own endpoint with the same method:
 
-## What this covers
+```bash
+python3 benchmarks/standard-round/standard_round.py --help   # Python stdlib only, any OpenAI-compatible endpoint
+```
 
-- **Models**: Gemma 4, **Qwen 3.8 (27B + Flash-Next)**, Qwen 3.6, NVIDIA Nemotron 3 (Nano, Super, Omni).
-- **Engines**: vLLM and TensorRT-LLM.
-- **Quantization**: NVFP4/Marlin, FP8 KV cache, BF16, **fp8-e4m3 hybrid** (NVFP4 experts + fp8 side layers).
-- **Agent frameworks**: Hermes, OpenClaw, Opencode, LiteLLM, Open WebUI.
-- **Use cases**: chatbots, coding assistants, multi-turn tool calling and multimodal agents.
-- **Local ASR**: faster-whisper server for transcribing voice messages on the Spark.
-- **Local web extraction**: fastCRW (Firecrawl-compatible) for scraping URLs without cloud APIs.
+## Repository layout
 
-See the live site for the full guide, benchmark tables and copy-paste launch scripts.
+| Path | What it is |
+|---|---|
+| [`recipes/`](recipes/) | Tested recipes (YAML) from the October 2026 round |
+| [`scripts/recipe_to_docker.py`](scripts/recipe_to_docker.py) | Turns a recipe into a `docker run` command |
+| [`benchmarks/standard-round/`](benchmarks/standard-round/) | Benchmark script: single user, 4 users, 46K prompt, stability, sustained load, speculative acceptance |
+| [`scripts/run-*.sh`](scripts/) | Earlier launch scripts (vLLM and TensorRT-LLM, April–September 2026) |
+| [`chat-templates/`](chat-templates/) | Chat templates needed by some checkpoints |
+| [`hermes-plugins/`](hermes-plugins/), [`asr-server/`](asr-server/), [`web-extractor/`](web-extractor/) | Local agent stack: Hermes plugins, faster-whisper ASR, Firecrawl-compatible extraction |
+| [`src/`](src/) | The Astro site published on GitHub Pages |
+
+## Earlier results (April–September 2026)
+
+The previous rounds compared vLLM and TensorRT-LLM with older images, different context sizes and 8 concurrent requests, so their numbers are not directly comparable with the October round. They are kept in the [Results](https://ctala.github.io/local-llm-agentic-workflows/results/) page and the [Setup log](https://ctala.github.io/local-llm-agentic-workflows/setup/). Agent integration (Hermes, OpenClaw, Opencode, LiteLLM) is in [Agents](https://ctala.github.io/local-llm-agentic-workflows/agents/) and the full self-hosted stack in [Stack](https://ctala.github.io/local-llm-agentic-workflows/stack/).
 
 ## Related work
 
-- [`ctala/ai-benchmarks-alternativos`](https://github.com/ctala/ai-benchmarks-alternativos) — Comparative AI benchmarks covering cloud, local and edge deployment.
-- [benchmarks.cristiantala.com](https://benchmarks.cristiantala.com/) — Published benchmark reports and recommendations.
+- [`ctala/ai-benchmarks-alternativos`](https://github.com/ctala/ai-benchmarks-alternativos): comparative AI benchmarks covering cloud, local and edge deployment.
+- [benchmarks.cristiantala.com](https://benchmarks.cristiantala.com/): published benchmark reports and recommendations.
 
 ## License
 

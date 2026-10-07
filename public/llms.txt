@@ -3,7 +3,7 @@
 > Same-hardware benchmarks, tested docker run recipes and an agent deployment prompt for running local LLMs on the NVIDIA DGX Spark (GB10, 128 GB unified memory, aarch64) with vLLM 0.31.0 and NVIDIA NIM. Author: Cristian Tala. Updated 2026-10-06.
 
 Key facts (October 2026 round, 128K context, 4 concurrent users, FP8 KV cache):
-- Fastest: Qwen3.6-35B-A3B NVFP4 + MTP on vLLM 0.31.0, 102 tok/s single user, 240 tok/s total with 4 users, ~55 GB.
+- Fastest: Qwen3.6-35B-A3B NVFP4 + MTP on vLLM 0.31.0, 102 tok/s single user, 240 tok/s total with 4 users, ~56 GB.
 - Nemotron 3 Super 120B-A12B NVFP4 runs on vLLM 0.31.0: 16 tok/s, 23 tok/s with MTP, ~95 GB.
 - With the same model, plain vLLM 0.31.0 was as fast or faster than the official NIM container.
 - Always set --gpu-memory-utilization explicitly: on unified memory vLLM's 0.9 default reserves ~110 GB.
