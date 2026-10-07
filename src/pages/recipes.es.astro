@@ -1,0 +1,8 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { Content, frontmatter } from '../content/pages/RECIPES.es.md';
+---
+
+<Layout title={frontmatter.title} description={frontmatter.description} keywords={frontmatter.keywords || []} type="article" lang="es" alternate="/recipes/" canonical="/recipes.es/">
+  <Content />
+</Layout>

@@ -1,5 +1,8 @@
 # Resultados finales: Gemma 4 / Qwen 3.6 / Nemotron 3 en NVIDIA DGX Spark
 
+> **Actualización de octubre 2026.** Estos son los resultados anteriores (abril a septiembre de 2026), con imágenes antiguas. La nueva ronda en el mismo equipo con **vLLM 0.31.0**, contexto de 128K y 4 usuarios simultáneos está en **[Benchmarks](../benchmarks.es/)**, junto con **[recetas](../recipes.es/)** listas para copiar. Importante: **Nemotron 3 Super 120B-A12B ya funciona con vLLM 0.31.0** (16,1 tok/s; 23,0 con MTP; ~95 GB), así que la falla con vLLM descrita abajo aplica solo a la imagen antigua `gemma4-0505-cu130`.
+
+
 > Para una guía rápida de uso, véase [Inicio](/local-llm-agentic-workflows/). Este documento conserva el detalle completo de resultados y notas técnicas.
 
 ## Hardware / software base
@@ -316,6 +319,8 @@ Requiere descargar `nvidia/Qwen3.6-35B-A3B-NVFP4`. Esta es la configuración rec
 ---
 
 ## Nemotron-3 Super 120B-A12B con vLLM: por qué no funcionó
+
+> Resuelto en vLLM 0.31.0: revisa [Benchmarks](../benchmarks.es/) y la [receta](../recipes.es/#nemotron3-super-120b-nvfp4-mtp-v031) `nemotron3-super-120b-nvfp4-mtp-v031`.
 
 Se hicieron dos intentos de servir `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4` con `vllm/vllm-openai:gemma4-0505-cu130` usando el comando:
 

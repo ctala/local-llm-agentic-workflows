@@ -2,6 +2,9 @@
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const links = [
   { href: `${base}/`, label: 'Home' },
+  { href: `${base}/benchmarks/`, label: 'Benchmarks' },
+  { href: `${base}/recipes/`, label: 'Recipes' },
+  { href: `${base}/deploy-with-agent/`, label: 'Agent prompt' },
   { href: `${base}/results/`, label: 'Results' },
   { href: `${base}/setup/`, label: 'Setup' },
   { href: `${base}/agents/`, label: 'Agents' },
@@ -9,6 +12,12 @@ const links = [
 ];
 
 const currentPath = Astro.url.pathname;
+// enlace a la otra versión de idioma cuando existe (páginas *.es)
+const BILINGUAL = ['benchmarks', 'recipes', 'deploy-with-agent', 'results', 'setup'];
+const slug = currentPath.replace(base, '').replace(/^\/|\/$/g, '');
+const isEs = slug.endsWith('.es');
+const root = slug.replace(/\.es$/, '');
+const langLink = BILINGUAL.includes(root) ? { href: `${base}/${root}${isEs ? '' : '.es'}/`, label: isEs ? 'English' : 'Español' } : null;
 ---
 
 <nav class="site-nav" aria-label="Main navigation">
@@ -30,6 +39,7 @@ const currentPath = Astro.url.pathname;
           );
         })
       }
+      {langLink && <li><a href={langLink.href} hreflang={isEs ? 'en' : 'es'} lang={isEs ? 'en' : 'es'}>{langLink.label}</a></li>}
     </ul>
   </div>
 </nav>

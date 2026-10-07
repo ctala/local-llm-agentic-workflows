@@ -1,0 +1,54 @@
+id: qwen38-flash-next
+title: Qwen3.8-Flash-Next NVFP4 (RadixArk) en vLLM con MTP — contexto largo 256K
+status: verified
+download:
+- 'hf download RadixArk/Qwen3.8-Flash-Next-NVFP4  # served from the Hugging Face cache'
+capabilities: text, image, video, tools, reasoning
+measured:
+  date: '2026-10-06'
+  ctx: 131072
+  users: 4
+  kv_cache: fp8
+  single_user_tok_s: 26.8
+  four_users_total_tok_s: 52.5
+  ttft_ms: 259
+  long_prompt_46k_s: 30.2
+  load_min: 13.8
+  memory_gb: 95.7
+  gpu_util: 0.8
+entry:
+  description: Qwen3.8-Flash-Next NVFP4 (RadixArk) en vLLM con MTP — contexto largo 256K
+  engine: vllm
+  image: qwen38-flash-dgx:latest
+  model: /root/.cache/huggingface/hub/models--RadixArk--Qwen3.8-Flash-Next-NVFP4/snapshots/7b719225242aacd3dbd3f9407468c2ee9a9d2594
+  served_name: qwen3.8-flash-next
+  mem_gb: 92
+  gpu_util: 0.75
+  startup_timeout: 1800
+  shm_size: 16g
+  env:
+    HF_HUB_OFFLINE: '1'
+    VLLM_ALLOW_LONG_MAX_MODEL_LEN: '0'
+    VLLM_PLE_MMAP: '1'
+    VLLM_PLE_MMAP_WORKERS: '32'
+    VLLM_PLE_MMAP_PREWARM: '0'
+    VLLM_QSA_EXACT_TOPK: '1'
+    VLLM_USE_FLASHINFER_SAMPLER: '1'
+  args:
+  - --load-format=safetensors
+  - --max-model-len=262144
+  - --max-num-seqs=8
+  - --gpu-memory-utilization=0.75
+  - --enable-prefix-caching
+  - --enable-chunked-prefill
+  - --max-num-batched-tokens=8192
+  - -cc.cudagraph_mode=PIECEWISE
+  - -cc.splitting_ops=["vllm::unified_attention_with_output","vllm::unified_mla_attention_with_output","vllm::mamba_mixer2","vllm::mamba_mixer","vllm::short_conv","vllm::qwen3_8_flash_next_ple_short_conv","vllm::qwen3_8_flash_next_qsa_with_output","vllm::linear_attention","vllm::qwen_gdn_attention_core","vllm::qwen_gdn_attention_core_fused_norm_packed","vllm::sparse_attn_indexer","vllm::ple_mmap_lookup"]
+  - --no-enable-flashinfer-autotune
+  - --kv-cache-dtype=auto
+  - --enable-auto-tool-choice
+  - --tool-call-parser=qwen3_coder
+  - --reasoning-parser=qwen3
+  - --speculative-config={"method":"mtp","num_speculative_tokens":2}
+  mounts:
+  - ~/vllm:/vllm:ro

@@ -1,0 +1,39 @@
+id: gemma4-26b-a4b-nvfp4-mtp-v031
+title: Gemma 4 26B-A4B NVFP4 + drafter MTP oficial · vLLM 0.31.0
+status: verified
+download:
+- hf download nvidia/Gemma-4-26B-A4B-NVFP4 --local-dir ~/vllm/gemma4-26b-a4b-nvfp4
+- hf download google/gemma-4-26B-A4B-it-assistant --local-dir ~/vllm/gemma4-26b-a4b-assistant
+capabilities: text, image, audio, video
+measured:
+  date: '2026-10-06'
+  ctx: 131072
+  users: 4
+  kv_cache: fp8
+  single_user_tok_s: 56.5
+  four_users_total_tok_s: 186.6
+  ttft_ms: 119
+  long_prompt_46k_s: 29.7
+  load_min: 4.8
+  memory_gb: 45.1
+  gpu_util: 0.4
+entry:
+  engine: vllm
+  image: vllm/vllm-openai:v0.31.0-aarch64
+  served_name: gemma-4-26b-a4b
+  mem_gb: 45
+  startup_timeout: 1200
+  env:
+    HF_HUB_OFFLINE: '1'
+    VLLM_NVFP4_GEMM_BACKEND: marlin
+    VLLM_USE_FLASHINFER_MOE_FP4: '0'
+  args:
+  - --max-model-len=65536
+  - --gpu-memory-utilization=0.35
+  - --max-num-seqs=4
+  - --enable-prefix-caching
+  - --max-num-batched-tokens=8192
+  - --speculative-config={"method":"mtp","model":"/vllm/gemma4-26b-a4b-assistant","num_speculative_tokens":3}
+  model: /vllm/gemma4-26b-a4b-nvfp4
+  mounts:
+  - ~/vllm:/vllm:ro

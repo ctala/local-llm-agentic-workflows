@@ -1,0 +1,46 @@
+{
+ "en": [
+  [
+   "What is the fastest LLM on the NVIDIA DGX Spark?",
+   "In our October 2026 round at 128K context and 4 concurrent users, Qwen3.6-35B-A3B NVFP4 on vLLM 0.31.0 with MTP speculative decoding was the fastest: 102.3 tok/s for one user and 240.0 tok/s total with 4 users, using about 47 GB of the 128 GB unified memory."
+  ],
+  [
+   "Is NVIDIA NIM faster than vLLM on the DGX Spark?",
+   "Not in our tests. With the same model, a plain vLLM 0.31.0 container was faster than the official NIM: GPT-OSS-20B ran at 96.2 vs 62.8 tok/s for one user, and Nemotron 3 Nano Omni at 58.8 vs 56.0 tok/s. Some NIMs (Qwen3-32B, Qwen3.8-27B) are only published for amd64 and do not run on the Spark."
+  ],
+  [
+   "Does speculative decoding (MTP, DSpark, Eagle3) help on the DGX Spark?",
+   "Yes, mostly for agent and code workloads. Qwen3.6 with MTP went from ~78 to ~125 tok/s on code and JSON/tool calls (80-90% acceptance) but only to ~95 tok/s on free-form writing (~50% acceptance). Gemma 4 with its official MTP drafter nearly doubled (31 to 57 tok/s). DSpark helped Nemotron 3.5 Lightning (+34%) but barely helped Qwen3.8-27B on fresh text. Eagle3 made GPT-OSS slower (96 to 59 tok/s on 20B), so skip it there."
+  ],
+  [
+   "Can I run Llama 3.3 70B with 128K context and 4 users on a DGX Spark?",
+   "No. Llama 3.3 70B is dense with 80 full-attention layers, so its KV cache needs about 160 KB per token: four 128K conversations plus the weights need roughly 133 GB, more than the Spark's 121 GB of usable unified memory. Use fewer users or a shorter context."
+  ],
+  [
+   "Which model should I use for agents, coding, content or research on the DGX Spark?",
+   "Agents (tool calling, low latency): Qwen3.6-35B + MTP. Coding: Qwen3.6-35B + MTP, with GPT-OSS-120B as an independent second opinion. Multimodal with audio/video: Nemotron 3 Nano Omni (vLLM). Long, careful reasoning with fewer users: Nemotron 3 Super 120B + MTP."
+  ]
+ ],
+ "es": [
+  [
+   "¿Cuál es el modelo más rápido en el NVIDIA DGX Spark?",
+   "En nuestra ronda de octubre de 2026 con 128K de contexto y 4 usuarios simultáneos, Qwen3.6-35B-A3B NVFP4 on vLLM 0.31.0 with MTP speculative decoding fue el más rápido: 102.3 tok/s con un usuario y 240.0 tok/s en total con 4 usuarios, usando unos 47 GB de los 128 GB de memoria unificada."
+  ],
+  [
+   "¿Un NIM de NVIDIA es más rápido que vLLM en el DGX Spark?",
+   "No en nuestras pruebas. Con el mismo modelo, un contenedor propio con vLLM 0.31.0 fue más rápido que el NIM oficial: GPT-OSS-20B dio 96.2 contra 62.8 tok/s con un usuario, y Nemotron 3 Nano Omni 58.8 contra 56.0. Algunos NIM (Qwen3-32B, Qwen3.8-27B) solo existen para amd64 y no corren en el Spark."
+  ],
+  [
+   "¿Sirve la decodificación especulativa (MTP, DSpark, Eagle3) en el DGX Spark?",
+   "Sí, sobre todo para agentes y código. Qwen3.6 con MTP pasó de ~78 a ~125 tok/s en código y JSON con herramientas (80-90 % de aceptación), pero solo a ~95 tok/s en redacción libre (~50 %). Gemma 4 con su drafter MTP oficial casi duplicó (31 a 57 tok/s). DSpark ayudó a Nemotron 3.5 Lightning (+34 %) pero casi nada a Qwen3.8-27B con texto nuevo. Eagle3 hizo más lento a GPT-OSS (96 a 59 tok/s en 20B), así que conviene no usarlo ahí."
+  ],
+  [
+   "¿Puedo correr Llama 3.3 70B con 128K de contexto y 4 usuarios en un DGX Spark?",
+   "No. Llama 3.3 70B es denso, con 80 capas de atención completa: su caché KV pide unos 160 KB por token, y cuatro conversaciones de 128K más los pesos suman ~133 GB, más que los 121 GB utilizables del Spark. Usa menos usuarios o menos contexto."
+  ],
+  [
+   "¿Qué modelo usar para agentes, código, contenido o investigación en el DGX Spark?",
+   "Agentes (herramientas, baja latencia): Qwen3.6-35B + MTP. Código: Qwen3.6-35B + MTP, con GPT-OSS-120B como segunda opinión independiente. Multimodal con audio y video: Nemotron 3 Nano Omni (vLLM). Razonamiento largo y cuidadoso con menos usuarios: Nemotron 3 Super 120B + MTP."
+  ]
+ ]
+}

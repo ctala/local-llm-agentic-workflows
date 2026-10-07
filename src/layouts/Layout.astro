@@ -10,6 +10,10 @@ export interface Props {
   image?: string;
   canonical?: string;
   type?: string;
+  lang?: 'en' | 'es';
+  alternate?: string;        // ruta de la versión en el otro idioma (p. ej. '/results.es/')
+  dateModified?: string;     // ISO, para buscadores
+  faq?: { q: string; a: string }[];
 }
 
 const {
@@ -18,6 +22,11 @@ const {
   keywords = [],
   canonical,
   type = 'website',
+  lang = 'en',
+  alternate,
+  dateModified = '2026-10-06',
+  faq = [],
+  image = '/og-dgx-spark-llm.png',
 } = Astro.props;
 
 const siteUrl = 'https://ctala.github.io/local-llm-agentic-workflows';
@@ -37,7 +46,7 @@ const keywordString = [
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang={lang}>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -46,15 +55,24 @@ const keywordString = [
     <meta name="keywords" content={keywordString} />
     <meta name="author" content="Cristian Tala" />
     <link rel="canonical" href={pageUrl} />
+    {alternate && <link rel="alternate" hreflang={lang === 'en' ? 'es' : 'en'} href={`${siteUrl}${alternate}`} />}
+    <link rel="alternate" hreflang={lang} href={pageUrl} />
+    <link rel="alternate" type="text/plain" href={`${siteUrl}/llms.txt`} title="llms.txt" />
 
     <!-- Open Graph -->
     <meta property="og:type" content={type} />
     <meta property="og:url" content={pageUrl} />
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
+    <meta property="og:image" content={`${siteUrl}${image}`} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content={lang === 'es' ? 'es_419' : 'en_US'} />
+    <meta property="article:modified_time" content={dateModified} />
 
     <!-- Twitter -->
-    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content={`${siteUrl}${image}`} />
     <meta name="twitter:title" content={fullTitle} />
     <meta name="twitter:description" content={description} />
 
@@ -67,6 +85,10 @@ const keywordString = [
         headline: title,
         description,
         url: pageUrl,
+        inLanguage: lang,
+        dateModified,
+        image: `${siteUrl}${image}`,
+        keywords: keywordString,
         author: {
           '@type': 'Person',
           name: 'Cristian Tala',
@@ -84,6 +106,16 @@ const keywordString = [
       })}
     />
 
+    {faq.length > 0 && (
+      <script
+        type="application/ld+json"
+        set:html={JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': 'FAQPage',
+          mainEntity: faq.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+        })}
+      />
+    )}
     <meta name="generator" content={Astro.generator} />
   </head>
   <body>

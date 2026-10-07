@@ -1,0 +1,38 @@
+id: nemotron3-super-120b-nvfp4-v031
+title: Nemotron 3 Super 120B-A12B NVFP4 · vLLM 0.31.0
+status: verified
+download:
+- hf download nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4 --local-dir ~/vllm/nemotron3-super-120b-a12b-nvfp4
+capabilities: text, tools, reasoning
+measured:
+  date: '2026-10-06'
+  ctx: 131072
+  users: 4
+  kv_cache: fp8
+  single_user_tok_s: 16.1
+  four_users_total_tok_s: 42.8
+  ttft_ms: 326
+  long_prompt_46k_s: 22.8
+  load_min: 10.3
+  memory_gb: 94.3
+  gpu_util: 0.8
+entry:
+  engine: vllm
+  image: vllm/vllm-openai:v0.31.0-aarch64
+  served_name: nemotron-3-super
+  mem_gb: 100
+  startup_timeout: 2400
+  env:
+    HF_HUB_OFFLINE: '1'
+    VLLM_NVFP4_GEMM_BACKEND: marlin
+    VLLM_USE_FLASHINFER_MOE_FP4: '0'
+    VLLM_ALLOW_LONG_MAX_MODEL_LEN: '1'
+  args:
+  - --max-model-len=65536
+  - --gpu-memory-utilization=0.85
+  - --max-num-seqs=4
+  - --enable-prefix-caching
+  - --trust-remote-code
+  model: /vllm/nemotron3-super-120b-a12b-nvfp4
+  mounts:
+  - ~/vllm:/vllm:ro
