@@ -1,0 +1,38 @@
+id: gpt-oss-20b-v031
+title: GPT-OSS-20B (MXFP4) · vLLM 0.31.0
+status: verified
+download:
+- hf download openai/gpt-oss-20b --local-dir ~/vllm/gpt-oss-20b-v031
+capabilities: text, tools, reasoning
+measured:
+  date: '2026-10-06'
+  ctx: 131072
+  users: 4
+  kv_cache: fp8
+  single_user_tok_s: 96.2
+  four_users_total_tok_s: 150.6
+  ttft_ms: 3319
+  long_prompt_46k_s: 8.9
+  load_min: 2.9
+  memory_gb: 25.7
+  gpu_util: 0.25
+entry:
+  engine: vllm
+  image: vllm/vllm-openai:v0.31.0-aarch64
+  served_name: gpt-oss-20b
+  mem_gb: 25
+  startup_timeout: 1800
+  shm_size: 16g
+  env:
+    HF_HUB_OFFLINE: '1'
+  capabilities:
+  - texto
+  - herramientas
+  - razonamiento
+  args:
+  - --max-model-len=131072
+  - --max-num-seqs=4
+  - --enable-prefix-caching
+  model: /vllm/gpt-oss-20b-v031
+  mounts:
+  - ~/vllm:/vllm:ro

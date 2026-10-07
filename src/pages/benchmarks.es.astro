@@ -1,0 +1,9 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { Content, frontmatter } from '../content/pages/BENCHMARKS.es.md';
+import faqs from '../content/pages/benchmarks-faq.json';
+---
+
+<Layout title={frontmatter.title} description={frontmatter.description} keywords={frontmatter.keywords || []} type="article" lang="es" alternate="/benchmarks/" canonical="/benchmarks.es/" faq={faqs['es'].map(([q, a]) => ({ q, a }))}>
+  <Content />
+</Layout>

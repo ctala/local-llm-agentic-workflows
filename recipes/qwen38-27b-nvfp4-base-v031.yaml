@@ -1,0 +1,43 @@
+id: qwen38-27b-nvfp4-base-v031
+title: Qwen3.8-27B NVFP4 · vLLM 0.31.0
+status: verified
+download:
+- hf download unsloth/Qwen3.8-27B-NVFP4 --local-dir ~/vllm/qwen3.8-27b-nvfp4
+capabilities: text, image, tools, reasoning
+measured:
+  date: '2026-10-06'
+  ctx: 131072
+  users: 4
+  kv_cache: fp8
+  single_user_tok_s: 11.0
+  four_users_total_tok_s: 39.6
+  ttft_ms: 202
+  long_prompt_46k_s: 47.7
+  load_min: 6.6
+  memory_gb: 47.0
+  gpu_util: 0.4
+entry:
+  engine: vllm
+  image: vllm/vllm-openai:v0.31.0-aarch64
+  served_name: qwen3.8-27b
+  mem_gb: 50
+  startup_timeout: 1800
+  shm_size: 64g
+  env:
+    HF_HUB_OFFLINE: '1'
+    VLLM_TARGET_DEVICE: cuda
+    VLLM_FLOAT32_MATMUL_PRECISION: high
+    CUTE_DSL_ARCH: sm_121a
+  args:
+  - --max-model-len=131072
+  - --max-num-seqs=4
+  - --max-num-batched-tokens=16384
+  - --enable-prefix-caching
+  - --reasoning-parser=qwen3
+  - --tool-call-parser=qwen3_xml
+  - --enable-auto-tool-choice
+  - --limit-mm-per-prompt.image=2
+  - --limit-mm-per-prompt.video=0
+  model: /vllm/qwen3.8-27b-nvfp4
+  mounts:
+  - ~/vllm:/vllm:ro

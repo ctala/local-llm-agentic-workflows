@@ -1,0 +1,41 @@
+id: nemotron35-lightning-nvfp4-v031
+title: Nemotron 3.5 Lightning 30B-A3B NVFP4 · vLLM 0.31.0
+status: verified
+download:
+- hf download nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4 --local-dir ~/vllm/nemotron-3.5-lightning-nvfp4
+capabilities: text, tools, reasoning
+measured:
+  date: '2026-10-06'
+  ctx: 131072
+  users: 4
+  kv_cache: fp8
+  single_user_tok_s: 70.3
+  four_users_total_tok_s: 170.7
+  ttft_ms: 100
+  long_prompt_46k_s: 10.2
+  load_min: 3.9
+  memory_gb: 45.0
+  gpu_util: 0.4
+entry:
+  engine: vllm
+  image: vllm/vllm-openai:v0.31.0-aarch64
+  served_name: nemotron-3.5-lightning
+  mem_gb: 50
+  startup_timeout: 1500
+  env:
+    HF_HUB_OFFLINE: '1'
+    VLLM_NVFP4_GEMM_BACKEND: marlin
+    VLLM_USE_FLASHINFER_MOE_FP4: '0'
+  args:
+  - --max-model-len=131072
+  - --gpu-memory-utilization=0.45
+  - --max-num-seqs=4
+  - --enable-prefix-caching
+  - --trust-remote-code
+  - --chat-template=/vllm/nemotron-3.5-lightning-nvfp4/chat_template.jinja
+  - --reasoning-parser=nemotron_v3
+  - --tool-call-parser=qwen3_coder
+  - --enable-auto-tool-choice
+  model: /vllm/nemotron-3.5-lightning-nvfp4
+  mounts:
+  - ~/vllm:/vllm:ro

@@ -1,5 +1,8 @@
 # Local LLM Benchmark Results on DGX Spark & 96–128 GB Edge AI Workstations
 
+> **October 2026 update.** These are the earlier (April–September 2026) results with older images. The new same-hardware round with **vLLM 0.31.0**, 128K context and 4 concurrent users is in **[Benchmarks](../benchmarks/)**, with copy-paste **[recipes](../recipes/)**. Notably, **Nemotron 3 Super 120B-A12B now runs on vLLM 0.31.0** (16.1 tok/s, 23.0 with MTP, ~95 GB), so the vLLM failure described below applies only to the older `gemma4-0505-cu130` image.
+
+
 > For the quick start guide see [Home](/local-llm-agentic-workflows/). For the original Spanish log see [Results in Spanish](/local-llm-agentic-workflows/results.es/).
 
 This document contains the full benchmark results and technical notes for running **Gemma 4**, **Qwen 3.6** and **NVIDIA Nemotron 3** locally on the NVIDIA DGX Spark and equivalent high-memory edge AI hardware.
@@ -101,6 +104,8 @@ Without Marlin, vLLM falls back to CUTLASS FP4 kernels that crash or hang on SM1
 ---
 
 ## Why Nemotron-3 Super 120B-A12B fails on vLLM
+
+> Fixed in vLLM 0.31.0: see [Benchmarks](../benchmarks/) and the `nemotron3-super-120b-nvfp4-mtp-v031` [recipe](../recipes/#nemotron3-super-120b-nvfp4-mtp-v031).
 
 We attempted twice to serve `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4` with `vllm/vllm-openai:gemma4-0505-cu130`.
 

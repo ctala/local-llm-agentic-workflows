@@ -6,12 +6,28 @@ A practical guide, reproducible benchmarks and ready-to-run Docker recipes for r
 
 ## Quick links
 
+- **[October 2026 benchmark: 23 configurations at 128K context × 4 users](https://ctala.github.io/local-llm-agentic-workflows/benchmarks/)** ([español](https://ctala.github.io/local-llm-agentic-workflows/benchmarks.es/))
+- **[Copy-paste recipes](https://ctala.github.io/local-llm-agentic-workflows/recipes/)** ([español](https://ctala.github.io/local-llm-agentic-workflows/recipes.es/)): YAML in [`recipes/`](recipes/), turned into `docker run` by [`scripts/recipe_to_docker.py`](scripts/recipe_to_docker.py)
+- **[Agent deployment prompt](https://ctala.github.io/local-llm-agentic-workflows/deploy-with-agent/)** ([español](https://ctala.github.io/local-llm-agentic-workflows/deploy-with-agent.es/)): let Claude Code, Codex or OpenCode deploy a recipe
+- [Benchmark script](benchmarks/standard-round/standard_round.py) (Python stdlib only, any OpenAI-compatible endpoint)
 - [Results](https://ctala.github.io/local-llm-agentic-workflows/results/)
 - [Setup guide](https://ctala.github.io/local-llm-agentic-workflows/setup/)
 - [Agent integration (Hermes / OpenClaw / Opencode)](https://ctala.github.io/local-llm-agentic-workflows/agents/)
 - [Full local stack](https://ctala.github.io/local-llm-agentic-workflows/stack/)
 
-## Quick answers
+## Quick answers (October 2026, vLLM 0.31.0, 128K context × 4 users)
+
+| Need | Pick | 1 user | 4 users (total) | Memory |
+|---|---|---:|---:|---:|
+| Fastest overall, multimodal, tools | Qwen3.6-35B-A3B NVFP4 + MTP | 102 tok/s | 240 tok/s | ~55 GB |
+| Small and fast | GPT-OSS-20B | 96 tok/s | 151 tok/s | ~26 GB |
+| Agents, long context | Nemotron 3.5 Lightning 30B-A3B + DSpark | 94 tok/s | 213 tok/s | ~44 GB |
+| Image, audio and video input | Nemotron 3 Nano Omni 30B-A3B | 59 tok/s | 185 tok/s | ~44 GB |
+| Largest that fits | Nemotron 3 Super 120B-A12B + MTP | 23 tok/s | 57 tok/s | ~95 GB |
+
+Full table, speculative-decoding comparison (MTP, DSpark, DFlash, Eagle3), NIM vs vLLM and what does not fit: [benchmarks](https://ctala.github.io/local-llm-agentic-workflows/benchmarks/).
+
+### Earlier results (September 2026)
 
 > ⚠️ **Comparación apples-to-apples.** Todos los números son del mismo Spark, mismos prompts, mismo método de medición. La columna **single-stream** mide 1 usuario con 1 request; la columna **@c=8 aggregate** mide 8 requests concurrentes. Single-stream warm = primer request después del cold start (TTFT ~0.24 s, prefix cache poblado).
 >

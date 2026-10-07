@@ -1,0 +1,8 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { Content, frontmatter } from '../content/pages/DEPLOY-WITH-AGENT.es.md';
+---
+
+<Layout title={frontmatter.title} description={frontmatter.description} keywords={frontmatter.keywords || []} type="article" lang="es" alternate="/deploy-with-agent/" canonical="/deploy-with-agent.es/">
+  <Content />
+</Layout>

@@ -1,0 +1,39 @@
+id: qwen3-8b-fp8-v031
+title: Qwen3-8B FP8 · vLLM 0.31.0
+status: verified
+download:
+- hf download Qwen/Qwen3-8B-FP8 --local-dir ~/vllm/qwen3-8b-fp8-v031
+capabilities: text, tools, reasoning
+measured:
+  date: '2026-10-06'
+  ctx: 131072
+  users: 4
+  kv_cache: fp8
+  single_user_tok_s: 23.2
+  four_users_total_tok_s: 95.7
+  ttft_ms: 84
+  long_prompt_46k_s: 21.7
+  load_min: 2.8
+  memory_gb: 55.5
+  gpu_util: 0.5
+entry:
+  engine: vllm
+  image: vllm/vllm-openai:v0.31.0-aarch64
+  served_name: qwen3-8b
+  mem_gb: 20
+  startup_timeout: 1500
+  shm_size: 16g
+  env:
+    HF_HUB_OFFLINE: '1'
+    VLLM_ALLOW_LONG_MAX_MODEL_LEN: '1'
+  args:
+  - --max-model-len=131072
+  - --max-num-seqs=4
+  - --enable-prefix-caching
+  - --enable-auto-tool-choice
+  - --tool-call-parser=hermes
+  - --reasoning-parser=qwen3
+  - --hf-overrides={"rope_parameters":{"rope_type":"yarn","factor":4.0,"original_max_position_embeddings":32768,"rope_theta":1000000},"max_position_embeddings":131072}
+  model: /vllm/qwen3-8b-fp8-v031
+  mounts:
+  - ~/vllm:/vllm:ro

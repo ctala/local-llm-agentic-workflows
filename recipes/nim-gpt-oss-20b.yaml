@@ -1,0 +1,31 @@
+id: nim-gpt-oss-20b
+title: GPT-OSS-20B · NIM oficial
+status: verified
+download:
+- 'docker pull nvcr.io/nim/openai/gpt-oss-20b:2.0.9  # NIM: downloads weights on first start (needs NGC_API_KEY)'
+capabilities: text, tools, reasoning
+measured:
+  date: '2026-10-06'
+  ctx: 131072
+  users: 4
+  kv_cache: fp8
+  single_user_tok_s: 62.8
+  four_users_total_tok_s: 151.4
+  ttft_ms: 1650
+  long_prompt_46k_s: 13.8
+  load_min: 4.8
+  memory_gb: 33.0
+  gpu_util: 0.3
+entry:
+  served_name: gpt-oss-20b
+  mem_gb: 25
+  startup_timeout: 3600
+  shm_size: 16g
+  capabilities:
+  - texto
+  - herramientas
+  - razonamiento
+  engine: nim
+  image: nvcr.io/nim/openai/gpt-oss-20b:2.0.9
+  env:
+    NIM_SERVED_MODEL_NAME: gpt-oss-20b

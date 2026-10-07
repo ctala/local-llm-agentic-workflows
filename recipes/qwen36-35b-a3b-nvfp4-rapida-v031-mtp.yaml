@@ -1,0 +1,50 @@
+id: qwen36-35b-a3b-nvfp4-rapida-v031-mtp
+title: Qwen3.6-35B-A3B NVFP4 (NVIDIA) + MTP k=2 · vLLM 0.31.0
+status: verified
+download:
+- hf download nvidia/Qwen3.6-35B-A3B-NVFP4 --local-dir ~/vllm/qwen3.6-35b-a3b-nvfp4-nvidia
+capabilities: text, image, video, tools, reasoning
+measured:
+  date: '2026-10-06'
+  ctx: 131072
+  users: 4
+  kv_cache: fp8
+  single_user_tok_s: 102.3
+  four_users_total_tok_s: 240.0
+  ttft_ms: 106
+  long_prompt_46k_s: 9.5
+  load_min: 2.7
+  memory_gb: 55.5
+  gpu_util: 0.5
+entry:
+  engine: vllm
+  image: vllm/vllm-openai:v0.31.0-aarch64
+  served_name: qwen3.6-35b-a3b
+  mem_gb: 50
+  startup_timeout: 1500
+  shm_size: 64g
+  env:
+    HF_HUB_OFFLINE: '1'
+    VLLM_TARGET_DEVICE: cuda
+    VLLM_TEST_FORCE_FP8_MARLIN: '1'
+    VLLM_MARLIN_USE_ATOMIC_ADD: '1'
+  args:
+  - --trust-remote-code
+  - --attention-backend=flashinfer
+  - --moe-backend=marlin
+  - --max-model-len=131072
+  - --max-num-seqs=4
+  - --max-num-batched-tokens=32768
+  - --enable-chunked-prefill
+  - --async-scheduling
+  - --enable-prefix-caching
+  - --limit-mm-per-prompt={"image":4}
+  - --load-format=fastsafetensors
+  - --kv-cache-dtype=fp8
+  - --enable-auto-tool-choice
+  - --tool-call-parser=qwen3_coder
+  - --reasoning-parser=qwen3
+  - --speculative-config={"method":"mtp","num_speculative_tokens":2,"moe_backend":"triton"}
+  model: /vllm/qwen3.6-35b-a3b-nvfp4-nvidia
+  mounts:
+  - ~/vllm:/vllm:ro
